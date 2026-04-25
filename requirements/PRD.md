@@ -1,6 +1,6 @@
 # AI Readers - 多Agent文章辩论评审系统
 
-**版本**: v4.0  
+**版本**: v4.3  
 **日期**: 2026-04-25  
 **作者**: AI FundExpert
 
@@ -192,6 +192,8 @@ PATCH /api/projects/{id}
 ```
 backend/
 ├── main.py              # FastAPI 应用
+├── pdf_generator.py     # PDF 报告生成器（reportlab）
+├── LXGWWenKai-Regular.ttf # 中文字体
 ├── Dockerfile           # Docker 镜像构建
 └── requirements.txt     # 依赖
 ```
@@ -204,6 +206,7 @@ backend/
 - python-docx==1.1.0
 - PyPDF2==3.0.1
 - slowapi==0.1.9
+- reportlab==4.0.9  # PDF 生成（中文字体支持）
 
 ### 6.2 文件处理
 
@@ -213,7 +216,24 @@ backend/
 | PDF | 用 PyPDF2 提取文本 |
 | DOCX | 用 python-docx 提取文本 |
 
-### 6.3 Docker 部署
+### 6.3 PDF 报告生成
+
+| 组件 | 说明 |
+|------|------|
+| 字体 | LXGW WenKai（霞鹜文楷）18MB 中文字体 |
+| 库 | reportlab（支持复杂 TTF 字体） |
+| 挂载 | docker-compose.yml 将字体挂载到容器 `/app/LXGWWenKai-Regular.ttf` |
+| 解析 | `parse_markdown_to_paragraphs()` 将 Markdown 转为 ReportLab Flowable |
+| 格式 | 支持标题(H1-H4)、段落、表格、列表、引用、代码块 |
+
+**PDF 生成流程**
+1. 读取 `debate_full.md` Markdown 文件
+2. 清理特殊字符（移除 CJK Radicals 兼容区字符）
+3. 解析为段落类型列表
+4. 使用 `clean_article_content()` 清理文章内容区域
+5. 生成带样式的 PDF 文档
+
+### 6.4 Docker 部署
 
 ```yaml
 services:
@@ -223,6 +243,7 @@ services:
       - ./history:/app/history
       - ./scripts:/app/scripts
       - ./frontend/dist:/app/dist:ro
+      - ./backend/LXGWWenKai-Regular.ttf:/app/LXGWWenKai-Regular.ttf:ro
     environment:
       - ALLOWED_ORIGINS=http://localhost:8086,http://10.147.18.38:8086
     restart: unless-stopped
@@ -239,7 +260,7 @@ services:
     restart: unless-stopped
 ```
 
-### 6.4 前端 (React + TypeScript)
+### 6.5 前端 (React + TypeScript)
 
 ```
 frontend/
@@ -268,7 +289,7 @@ frontend/
 - Zustand（状态管理）
 - jsPDF + html2canvas（PDF导出）
 
-### 6.5 安全特性
+### 6.6 安全特性
 
 | 特性 | 说明 |
 |------|------|
@@ -279,7 +300,7 @@ frontend/
 | Dockerfile | 非 root 用户运行 |
 | 异步任务超时 | 10分钟超时保护 |
 
-### 6.6 辩论脚本 (Python)
+### 6.7 辩论脚本 (Python)
 
 ```
 scripts/
@@ -309,7 +330,7 @@ scripts/
 | 项目详情页 | ✅ | 辩论视图 + 报告 |
 | 修改辩论设置 | ✅ | PATCH API + 弹窗 |
 | 辩论进度显示 | ✅ | processing 动画 |
-| PDF 导出 | ✅ | 后端 API + Playwright；降级为 HTML 下载 |
+| PDF 导出 | ✅ | 后端 API + reportlab + LXGW WenKai 中文字体 |
 | HTML 导出 | ✅ | 完整 HTML 文件（完美中文支持） |
 | 项目删除 | ✅ | 确认弹窗 |
 | 重新辩论 | ✅ | 使用当前配置 |
@@ -329,3 +350,4 @@ scripts/
 | v4.0 | 2026-04-25 | 修改设置、进度显示、提示词优化、安全审计 |
 | v4.1 | 2026-04-25 | PDF 导出改用后端 API，降级为 HTML 下载 |
 | v4.2 | 2026-04-25 | 辩论内容 Markdown 渲染修复 |
+| v4.3 | 2026-04-25 | PDF 报告服务器端生成（中文字体 LXGW WenKai） |
