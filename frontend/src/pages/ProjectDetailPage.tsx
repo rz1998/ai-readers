@@ -1,5 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { projectApi } from '@/services/api';
 import { useProjectStore } from '@/store/projectStore';
@@ -987,8 +989,10 @@ export function ProjectDetailPage() {
                 </button>
                 {articleExpanded && (
                   <div className="px-4 pb-4 border-t border-white/5">
-                    <div className="prose-content text-sm whitespace-pre-wrap max-h-96 overflow-y-auto">
-                      {currentProject.article || '文章内容未加载'}
+                    <div className="prose-content text-sm max-h-96 overflow-y-auto">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {currentProject.article || '文章内容未加载'}
+                      </ReactMarkdown>
                     </div>
                   </div>
                 )}

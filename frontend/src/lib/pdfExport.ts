@@ -3,54 +3,35 @@ import html2canvas from 'html2canvas';
 import type { Project, FinalReport } from '@/types';
 
 /**
- * 导出辩论报告为PDF（使用html2canvas确保中文正常显示）
+ * 导出辩论报告为PDF
+ * 使用浏览器打印功能，确保中文正常显示
  */
 export async function exportReportToPDF(project: Project): Promise<void> {
-  // 创建临时HTML容器
-  const container = document.createElement('div');
-  container.style.cssText = 'position: absolute; left: -9999px; top: 0; width: 800px; background: white; padding: 40px; font-family: "Microsoft YaHei", "PingFang SC", sans-serif;';
-  container.innerHTML = generateHTMLReport(project);
-  document.body.appendChild(container);
+  // 生成HTML报告
+  const htmlContent = generateHTMLReport(project);
+  
+  // 创建隐藏的iframe
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position: absolute; width: 800px; height: 600px; left: -9999px; top: 0; border: none;';
+  document.body.appendChild(iframe);
+  
+  // 等待iframe加载
+  await new Promise<void>((resolve) => {
+    iframe.onload = () => resolve();
+    iframe.srcdoc = htmlContent;
+  });
+  
+  // 等待内容渲染
+  await new Promise(resolve => setTimeout(resolve, 500));
   
   try {
-    // 使用html2canvas将HTML转为图片
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff',
-    });
-    
-    // 创建PDF
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    
-    // 计算图片尺寸以适应页面
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    
-    // 添加图片到PDF，多页面处理
-    let heightLeft = imgHeight;
-    let position = 0;
-    const imgData = canvas.toDataURL('image/png');
-    
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-    
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-    
-    // 保存PDF
-    const filename = `辩论报告_${project.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${Date.now()}.pdf`;
-    pdf.save(filename);
+    // 打印iframe内容
+    iframe.contentWindow?.print();
   } finally {
-    // 清理临时容器
-    document.body.removeChild(container);
+    // 延迟移除iframe
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 1000);
   }
 }
 
