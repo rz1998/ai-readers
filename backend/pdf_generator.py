@@ -311,7 +311,6 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
                 debate_paragraphs.append((p_type, content))
         
         # ===== Part 1: 完整辩论记录 =====
-        story.append(PageBreak())
         for p_type, content in debate_paragraphs:
             if p_type == 'h1':
                 story.append(Paragraph(content, styles['h1']))
