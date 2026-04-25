@@ -445,9 +445,8 @@ export function ProjectDetailPage() {
     try {
       // Call the debate API to restart
       await projectApi.startDebate(currentProject.id);
-      // Refresh the project data
-      const data = await projectApi.getProject(currentProject.id);
-      setCurrentProject(data);
+      // Update status to processing
+      setCurrentProject({ ...currentProject, status: 'processing' });
     } catch (err) {
       console.error('Failed to restart debate:', err);
     } finally {
@@ -455,6 +454,28 @@ export function ProjectDetailPage() {
       setShowRestartConfirm(false);
     }
   };
+
+  // Poll for status updates when processing
+  useEffect(() => {
+    if (currentProject?.status !== 'processing') return;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await projectApi.getProject(currentProject.id);
+        if (data) {
+          setCurrentProject(data);
+          // Stop polling when debate completes
+          if (data.status === 'completed') {
+            clearInterval(pollInterval);
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 3000); // Poll every 3 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [currentProject?.status]);
 
   useEffect(() => {
     if (!id) return;
@@ -897,6 +918,57 @@ export function ProjectDetailPage() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             {/* Main content - 2/3 */}
             <div className="xl:col-span-2 space-y-6">
+              {/* Project info - moved to top */}
+              <div className="glass-dark rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-sm">项目信息</h3>
+                  <button
+                    onClick={handleOpenEditSettings}
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/20 border border-white/10 hover:border-white/20 text-muted-foreground hover:text-white transition-all"
+                    title="修改设置"
+                  >
+                    <Settings size={14} />
+                  </button>
+                </div>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">状态</span>
+                    <span
+                      className={cn(
+                        'px-2 py-0.5 rounded-full text-xs',
+                        currentProject.status === 'completed'
+                          ? 'bg-green-500/20 text-green-400'
+                          : currentProject.status === 'debating'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-yellow-500/20 text-yellow-400'
+                      )}
+                    >
+                      {currentProject.status === 'completed'
+                        ? '已完成'
+                        : currentProject.status === 'debating'
+                        ? '辩论中'
+                        : '待开始'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">辩论轮次</span>
+                    <span>{currentProject.config.rounds}轮</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">批评者</span>
+                    <span>{currentProject.config.critics.join('、')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">辩护者</span>
+                    <span>{currentProject.config.defenders.join('、')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">创建时间</span>
+                    <span>{formatDate(currentProject.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Article section */}
               <div className="glass-dark rounded-xl overflow-hidden">
                 <button
@@ -958,6 +1030,21 @@ export function ProjectDetailPage() {
                   <p className="text-sm text-muted-foreground">等待系统启动辩论流程...</p>
                 </div>
               )}
+
+              {currentProject.status === 'processing' && (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mx-auto mb-4">
+                    <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+                  </div>
+                  <h3 className="font-medium mb-1">辩论进行中</h3>
+                  <p className="text-sm text-muted-foreground">AI 正在分析文章，请稍候...</p>
+                  <div className="mt-4 mx-auto max-w-xs">
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Sidebar - 1/3 */}
@@ -973,56 +1060,6 @@ export function ProjectDetailPage() {
                 </div>
               )}
 
-              {/* Project info */}
-              <div className="glass-dark rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-sm">项目信息</h3>
-                  <button
-                    onClick={handleOpenEditSettings}
-                    className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
-                    title="修改设置"
-                  >
-                    <Settings size={14} />
-                  </button>
-                </div>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">状态</span>
-                    <span
-                      className={cn(
-                        'px-2 py-0.5 rounded-full text-xs',
-                        currentProject.status === 'completed'
-                          ? 'bg-green-500/20 text-green-400'
-                          : currentProject.status === 'debating'
-                          ? 'bg-blue-500/20 text-blue-400'
-                          : 'bg-yellow-500/20 text-yellow-400'
-                      )}
-                    >
-                      {currentProject.status === 'completed'
-                        ? '已完成'
-                        : currentProject.status === 'debating'
-                        ? '辩论中'
-                        : '待开始'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">辩论轮次</span>
-                    <span>{currentProject.config.rounds}轮</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">批评者</span>
-                    <span>{currentProject.config.critics.join('、')}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">辩护者</span>
-                    <span>{currentProject.config.defenders.join('、')}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">创建时间</span>
-                    <span>{formatDate(currentProject.createdAt)}</span>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
