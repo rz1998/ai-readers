@@ -25,6 +25,7 @@ import {
   Trash2,
   RotateCcw,
   Play,
+  Settings,
 } from 'lucide-react';
 import {
   RadarChart,
@@ -403,6 +404,41 @@ export function ProjectDetailPage() {
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
 
+  // Edit settings functionality
+  const [showEditSettings, setShowEditSettings] = useState(false);
+  const [editConfig, setEditConfig] = useState({
+    rounds: 3,
+    critics: [] as string[],
+    defenders: [] as string[],
+  });
+
+  const handleOpenEditSettings = () => {
+    if (currentProject) {
+      setEditConfig({
+        rounds: currentProject.config.rounds,
+        critics: [...currentProject.config.critics],
+        defenders: [...currentProject.config.defenders],
+      });
+      setShowEditSettings(true);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!currentProject) return;
+    try {
+      await projectApi.updateProject(currentProject.id, {
+        title: currentProject.title,
+        config: editConfig,
+      });
+      // Refresh project data
+      const data = await projectApi.getProject(currentProject.id);
+      setCurrentProject(data);
+      setShowEditSettings(false);
+    } catch (err) {
+      console.error('Failed to update settings:', err);
+    }
+  };
+
   const handleRestart = async () => {
     if (!currentProject) return;
     setIsRestarting(true);
@@ -693,6 +729,110 @@ export function ProjectDetailPage() {
           </div>
         )}
 
+        {/* Edit Settings Modal */}
+        {showEditSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowEditSettings(false)} />
+            <div className="relative bg-card rounded-2xl shadow-2xl p-6 max-w-md w-full animate-slide-up border border-border">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-brand-500/10 flex items-center justify-center">
+                    <Settings size={24} className="text-brand-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg">修改辩论设置</h3>
+                    <p className="text-sm text-muted-foreground">调整辩论参数</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowEditSettings(false)}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Rounds */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">辩论轮次</label>
+                <select
+                  value={editConfig.rounds}
+                  onChange={(e) => setEditConfig({ ...editConfig, rounds: Number(e.target.value) })}
+                  className="w-full bg-white/5 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
+                >
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n}轮</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Critics */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">批评者</label>
+                <div className="space-y-2">
+                  {['结构批评者', '语言批评者', '逻辑批评者', '创意批评者', '技术批评者'].map((critic) => (
+                    <label key={critic} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editConfig.critics.includes(critic)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditConfig({ ...editConfig, critics: [...editConfig.critics, critic] });
+                          } else {
+                            setEditConfig({ ...editConfig, critics: editConfig.critics.filter((c) => c !== critic) });
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-border bg-white/5 text-brand-500 focus:ring-brand-500"
+                      />
+                      <span className="text-sm">{critic}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Defenders */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2">辩护者</label>
+                <div className="space-y-2">
+                  {['平衡辩护者', '共情辩护者', '内容辩护者', '表达辩护者'].map((defender) => (
+                    <label key={defender} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editConfig.defenders.includes(defender)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditConfig({ ...editConfig, defenders: [...editConfig.defenders, defender] });
+                          } else {
+                            setEditConfig({ ...editConfig, defenders: editConfig.defenders.filter((d) => d !== defender) });
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-border bg-white/5 text-brand-500 focus:ring-brand-500"
+                      />
+                      <span className="text-sm">{defender}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowEditSettings(false)}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-sm font-medium"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={editConfig.critics.length === 0 || editConfig.defenders.length === 0}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  保存设置
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         <div className="p-4 lg:p-6 max-w-6xl mx-auto">
           {/* Filters */}
@@ -835,7 +975,16 @@ export function ProjectDetailPage() {
 
               {/* Project info */}
               <div className="glass-dark rounded-xl p-4">
-                <h3 className="font-semibold text-sm mb-3">项目信息</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-sm">项目信息</h3>
+                  <button
+                    onClick={handleOpenEditSettings}
+                    className="p-1.5 rounded-lg hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
+                    title="修改设置"
+                  >
+                    <Settings size={14} />
+                  </button>
+                </div>
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">状态</span>

@@ -74,6 +74,12 @@ class ProjectConfig(BaseModel):
     defenders: List[str] = ["平衡辩护者", "共情辩护者"]
 
 
+class UpdateProjectRequest(BaseModel):
+    """Request model for updating project config"""
+    config: Optional[ProjectConfig] = None
+    title: Optional[str] = None
+
+
 # Helper functions
 def load_metadata(project_id: str) -> dict:
     """Load project metadata"""
@@ -522,6 +528,21 @@ async def delete_project(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
     
     shutil.rmtree(project_dir)
+    return {"success": True}
+
+
+@app.patch("/api/projects/{project_id}")
+async def update_project(project_id: str, update: UpdateProjectRequest):
+    """Update project title or config"""
+    metadata = load_metadata(project_id)
+    
+    if update.title is not None:
+        metadata["title"] = update.title
+    
+    if update.config is not None:
+        metadata["config"] = update.config.model_dump()
+    
+    save_metadata(project_id, metadata)
     return {"success": True}
 
 

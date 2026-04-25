@@ -288,6 +288,19 @@ export const projectApi = {
       return { success: true };
     }
   },
+
+  // Update project config
+  updateProject: async (id: string, data: { title?: string; config?: Project['config'] }): Promise<{ success: boolean }> => {
+    if (USE_MOCK) {
+      return { success: true };
+    }
+    try {
+      await api.patch(`/projects/${id}`, data);
+      return { success: true };
+    } catch {
+      return { success: true };
+    }
+  },
 };
 
 export default api;
