@@ -556,7 +556,7 @@ async def download_pdf(project_id: str):
     from fastapi.responses import FileResponse, JSONResponse
     import asyncio
     try:
-        from pdf_generator import generate_pdf_from_html, get_html_report_template
+        from pdf_generator import generate_pdf_from_html, generate_pdf_from_markdown, get_html_report_template
         PDF_GENERATOR_AVAILABLE = True
     except ImportError:
         PDF_GENERATOR_AVAILABLE = False
@@ -583,16 +583,22 @@ async def download_pdf(project_id: str):
             "html_content": html_content
         })
     
-    # Generate HTML report
-    html_content = get_html_report_template(project_data)
-    
     # Create temp PDF file
     temp_pdf = project_dir / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     
     try:
-        # Run PDF generation in a thread pool since Playwright sync API doesn't work in async loop
-        loop = asyncio.get_event_loop()
-        success = await loop.run_in_executor(None, generate_pdf_from_html, html_content, str(temp_pdf))
+        # Try to read the markdown file for full formatting
+        markdown_file = project_dir / "debate_full.md"
+        if markdown_file.exists():
+            md_content = markdown_file.read_text(encoding='utf-8')
+            # Run PDF generation in thread pool
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(None, generate_pdf_from_markdown, md_content, str(temp_pdf))
+        else:
+            # Fallback to HTML-based PDF
+            html_content = get_html_report_template(project_data)
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(None, generate_pdf_from_html, html_content, str(temp_pdf))
         
         if not success or not temp_pdf.exists():
             # Fallback to HTML response
