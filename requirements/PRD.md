@@ -1,6 +1,6 @@
 # AI Readers - 多Agent文章辩论评审系统
 
-**版本**: v3.0  
+**版本**: v4.0  
 **日期**: 2026-04-25  
 **作者**: AI FundExpert
 
@@ -14,9 +14,9 @@
 
 ---
 
-## 2. 文件上传
+## 2. 已完成功能
 
-### 2.1 支持格式
+### 2.1 文件上传
 
 | 格式 | 说明 |
 |------|------|
@@ -25,18 +25,33 @@
 | PDF | 二进制文件，保存到磁盘，后端提取文本 |
 | DOC/DOCX | 二进制文件，保存到磁盘，后端提取文本 |
 
-### 2.2 文件大小
+### 2.2 辩论角色
 
-- **无硬性限制** - Nginx 已配置最大 100MB
-- 建议纯文本 ≤ 10MB
-- PDF 等二进制文件按实际大小上传
+**批评者（5个）**
+- 结构批评者 - 从结构框架角度分析
+- 语言批评者 - 从遣词造句角度分析
+- 逻辑批评者 - 从逻辑论证角度分析
+- 创意批评者 - 从立意风格角度分析
+- 技术批评者 - 从技术细节角度分析
 
-### 2.3 上传方式
+**辩护者（4个）**
+- 平衡辩护者 - 理性分析，寻求共识
+- 共情辩护者 - 理解作者意图
+- 内容辩护者 - 从内容事实角度辩护
+- 表达辩护者 - 从表达方式角度辩护
 
-| 方式 | 说明 |
-|------|------|
-| 文件上传 | 支持拖拽或选择文件 |
-| 粘贴文本 | 文本框直接输入，无大小限制 |
+### 2.3 项目管理
+- 创建项目（文本/文件）
+- 查看项目列表
+- 查看项目详情
+- 删除项目
+- 重新辩论
+- **修改辩论设置**（轮次、批评者、辩护者）
+- **辩论进度显示**（自动轮询状态）
+
+### 2.4 报告导出
+- PDF 导出
+- HTML 导出
 
 ---
 
@@ -48,8 +63,9 @@
 history/
 └── {project_id}/
     ├── metadata.json      # 项目元信息（标题、配置、时间）
-    ├── article.pdf        # 原始文件（如果上传的是文件）
+    ├── original.pdf      # 原始文件（如果上传的是文件）
     ├── article.txt        # 提取的文本内容
+    ├── debate_history.json # 辩论过程历史
     └── debate_result.json  # 辩论结果
 ```
 
@@ -63,11 +79,11 @@ history/
   "content_type": "application/pdf",
   "file_size": 47153155,
   "created_at": "2026-04-25T10:00:00",
-  "status": "pending",
+  "status": "completed",
   "config": {
     "rounds": 3,
-    "critics": ["结构批评者", "语言批评者"],
-    "defenders": ["平衡辩护者", "共情辩护者"]
+    "critics": ["结构批评者", "语言批评者", "逻辑批评者"],
+    "defenders": ["平衡辩护者", "共情辩护者", "内容辩护者"]
   }
 }
 ```
@@ -83,71 +99,60 @@ pending → processing → completed
 | 状态 | 说明 |
 |------|------|
 | `pending` | 已创建，等待开始辩论 |
-| `processing` | 辩论进行中 |
+| `processing` | 辩论进行中（前端自动轮询） |
 | `completed` | 辩论完成，报告已生成 |
-| `failed` | 失败（可选） |
+| `failed` | 失败 |
 
 ---
 
 ## 4. API 设计
 
-### 4.1 创建项目（上传文件）
+### 4.1 项目管理
 
-```
-POST /api/projects
-Content-Type: multipart/form-data
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects` | 获取所有项目 |
+| GET | `/api/projects/{id}` | 获取项目详情 |
+| POST | `/api/projects` | 创建项目（文件上传） |
+| POST | `/api/projects/json` | 创建项目（JSON文本） |
+| PATCH | `/api/projects/{id}` | 更新项目配置 |
+| DELETE | `/api/projects/{id}` | 删除项目 |
+| POST | `/api/projects/{id}/debate` | 开始辩论 |
 
-file: (binary)
-title: "文章标题"
-config: {"rounds": 3, "critics": [...], "defenders": [...]}
+### 4.2 辩论配置
 
-Response 200:
+```json
 {
-  "id": "debate_20260425_xxxxxx",
-  "title": "文章标题",
-  "status": "pending",
-  "created_at": "...",
-  "config": {...}
+  "title": "项目标题",
+  "article": "文章内容（纯文本）",
+  "config": {
+    "rounds": 3,
+    "critics": ["结构批评者", "语言批评者"],
+    "defenders": ["平衡辩护者", "共情辩护者"]
+  }
 }
 ```
 
-### 4.2 创建项目（粘贴文本）
+### 4.3 更新配置请求
 
-```
-POST /api/projects
-Content-Type: application/json
-
+```json
+PATCH /api/projects/{id}
 {
-  "title": "文章标题",
-  "article": "文章内容...",
-  "config": {...}
+  "config": {
+    "rounds": 5,
+    "critics": ["结构批评者", "语言批评者", "逻辑批评者"],
+    "defenders": ["平衡辩护者", "共情辩护者"]
+  }
 }
-
-Response 200:
-{
-  "id": "debate_20260425_xxxxxx",
-  "title": "文章标题",
-  "status": "pending",
-  ...
-}
-```
-
-### 4.3 其他 API
-
-```
-GET  /api/projects              # 列表
-GET  /api/projects/:id        # 详情
-DELETE /api/projects/:id       # 删除
-POST /api/projects/:id/debate  # 开始辩论（异步）
 ```
 
 ---
 
-## 5. 前端交互
+## 5. 前端页面
 
 ### 5.1 页面结构
 
-| 页面 | 功能 |
+| 路径 | 说明 |
 |------|------|
 | `/` (项目列表) | 显示所有项目，状态徽章 |
 | `/projects/:id` | 项目详情，辩论内容，报告 |
@@ -163,12 +168,15 @@ POST /api/projects/:id/debate  # 开始辩论（异步）
 - 两种输入方式切换：文件上传 / 粘贴文本
 - 文件上传：拖拽区域 + 点击选择
 - 粘贴文本：文本框
-- 辩论配置：轮次、批评者、辩护者
+- 辩论配置：轮次、批评者、辩护者（复选框）
 - 提交后立即关闭，返回列表
 
 ### 5.4 项目详情页
 
+- **项目信息（置顶）**：状态、轮次、批评者、辩护者、创建时间
+- **设置按钮**：修改辩论配置
 - 文章原文（可展开/折叠）
+- **辩论进度动画**：processing 时显示旋转动画和进度条
 - 辩论流程（按轮次展示）
 - 评分雷达图
 - 报告内容
@@ -184,18 +192,25 @@ POST /api/projects/:id/debate  # 开始辩论（异步）
 ```
 backend/
 ├── main.py              # FastAPI 应用
-├── requirements.txt     # 依赖
-└── services/
-    ├── file_handler.py  # 文件处理（PDF提取等）
-    └── debate_runner.py  # 辩论任务运行器
+├── Dockerfile           # Docker 镜像构建
+└── requirements.txt     # 依赖
 ```
+
+**依赖**
+- fastapi==0.109.0
+- uvicorn[standard]==0.27.0
+- pydantic==2.5.3
+- python-multipart==0.0.6
+- python-docx==1.1.0
+- PyPDF2==3.0.1
+- slowapi==0.1.9
 
 ### 6.2 文件处理
 
 | 类型 | 处理方式 |
 |------|----------|
 | TXT/MD | 直接读取内容 |
-| PDF | 用 PyPDF2 或 pdfminer 提取文本 |
+| PDF | 用 PyPDF2 提取文本 |
 | DOCX | 用 python-docx 提取文本 |
 
 ### 6.3 Docker 部署
@@ -203,13 +218,14 @@ backend/
 ```yaml
 services:
   backend:
-    build: .
-    ports:
-      - "127.0.0.1:8080:8080"
+    build: ./backend
     volumes:
       - ./history:/app/history
+      - ./scripts:/app/scripts
+      - ./frontend/dist:/app/dist:ro
     environment:
-      - PYTHONUNBUFFERED=1
+      - ALLOWED_ORIGINS=http://localhost:8086,http://10.147.18.38:8086
+    restart: unless-stopped
 
   nginx:
     image: nginx:alpine
@@ -218,25 +234,87 @@ services:
     volumes:
       - ./frontend/dist:/usr/share/nginx/html
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
 ```
 
 ### 6.4 前端 (React + TypeScript)
 
-- 组件化开发
-- Zustand 状态管理
-- Axios 请求库
-- PDF 导出（jsPDF + html2canvas）
+```
+frontend/
+├── src/
+│   ├── pages/
+│   │   ├── ProjectsPage.tsx      # 项目列表页
+│   │   └── ProjectDetailPage.tsx # 项目详情页
+│   ├── components/
+│   │   ├── debate/
+│   │   │   ├── DebateView.tsx   # 辩论视图
+│   │   │   └── ReportSection.tsx # 报告区域
+│   │   └── layout/
+│   │       └── AppLayout.tsx     # 布局组件
+│   ├── services/
+│   │   └── api.ts               # API 调用
+│   └── store/
+│       └── projectStore.ts      # Zustand 状态
+└── dist/                        # 构建产物
+```
+
+**技术栈**
+- React 18 + TypeScript
+- Vite 构建工具
+- TailwindCSS + shadcn/ui 风格
+- Recharts（雷达图）
+- Zustand（状态管理）
+- jsPDF + html2canvas（PDF导出）
+
+### 6.5 安全特性
+
+| 特性 | 说明 |
+|------|------|
+| CORS 限制 | 可配置允许的源 |
+| 项目 ID 验证 | 正则 `^[\w-]+$` 防止路径遍历 |
+| 请求限流 | 辩论端点 5次/分钟 |
+| 日志系统 | 使用 logging 模块 |
+| Dockerfile | 非 root 用户运行 |
+| 异步任务超时 | 10分钟超时保护 |
+
+### 6.6 辩论脚本 (Python)
+
+```
+scripts/
+├── debate.py              # 主辩论脚本
+├── debate_api.py         # API 接口封装
+└── __init__.py
+```
+
+**提示词优化**
+- 多阶段分析框架（整体→局部→建议）
+- 批评者：结构/语言/逻辑/技术/创意 5维度
+- 辩护者：平衡/共情 2类型
+- 内容详实，包含表格化分析
 
 ---
 
-## 7. 待开发功能
+## 7. 已完成功能清单
 
-| 功能 | 优先级 | 说明 |
-|------|--------|------|
-| 文件上传（multipart） | P0 | 支持大文件 PDF/DOCX |
-| 文本提取 | P1 | PDF/DOCX 转文本 |
-| 异步辩论任务 | P2 | 后台运行辩论脚本 |
-| 状态轮询 | P2 | 前端定期检查状态 |
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 文件上传（multipart） | ✅ | 支持 PDF/DOCX/TXT/MD |
+| 文本提取 | ✅ | PyPDF2 + python-docx |
+| 异步辩论任务 | ✅ | asyncio 后台运行 |
+| 状态轮询 | ✅ | 前端 3 秒轮询 |
+| 项目列表页 | ✅ | 统计卡片 + 项目卡片 |
+| 上传弹窗 | ✅ | 文件/文本切换 |
+| 项目详情页 | ✅ | 辩论视图 + 报告 |
+| 修改辩论设置 | ✅ | PATCH API + 弹窗 |
+| 辩论进度显示 | ✅ | processing 动画 |
+| PDF 导出 | ✅ | jsPDF + html2canvas |
+| HTML 导出 | ✅ | 完整 HTML 文件 |
+| 项目删除 | ✅ | 确认弹窗 |
+| 重新辩论 | ✅ | 使用当前配置 |
+| Docker 部署 | ✅ | docker-compose |
+| 安全审计 | ✅ | CORS/限流/验证 |
 
 ---
 
@@ -248,3 +326,4 @@ services:
 | v2.0 | 2026-04-25 | 添加前端页面、PDF导出 |
 | v2.1-2.2 | 2026-04-25 | 辩论配置、项目删除 |
 | v3.0 | 2026-04-25 | 大文件支持、完整需求文档 |
+| v4.0 | 2026-04-25 | 修改设置、进度显示、提示词优化、安全审计 |
