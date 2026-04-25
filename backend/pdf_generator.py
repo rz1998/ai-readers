@@ -19,6 +19,19 @@ def markdown_to_html(text: str) -> str:
     return html
 
 
+def clean_article_content(content: str) -> str:
+    """清理文章内容中的文件路径和无关信息"""
+    if not content:
+        return ''
+    # 移除文件路径
+    content = re.sub(r'ﬁle:///[^•\n]*', '', content)
+    # 移除页码标记如 "1/146"
+    content = re.sub(r'\d+/\d+\s*$', '', content, flags=re.MULTILINE)
+    # 移除多余的空白行
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    return content.strip()
+
+
 def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
     """
     从HTML内容生成PDF
@@ -101,7 +114,6 @@ def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
         # 故事元素
         story = []
         
-        # 解析HTML内容
         # 提取标题
         title_match = re.search(r'<h1[^>]*>([^<]+)</h1>', html_content)
         if title_match:
@@ -109,28 +121,28 @@ def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
             story.append(Spacer(1, 10))
         
         # 提取元信息
-        meta_pattern = r'<div class="meta">.*?<p><strong>([^<]+)</strong>([^<]*)</p>.*?<p><strong>([^<]+)</strong>([^<]*)</p>.*?<p><strong>([^<]+)</strong>([^<]*)</p>'
-        meta_match = re.search(meta_pattern, html_content, re.DOTALL)
-        if meta_match:
-            for i in range(0, len(meta_match.groups()), 2):
-                if i + 1 < len(meta_match.groups()):
-                    label = meta_match.group(i + 1)
-                    value = meta_match.group(i + 2).strip() if i + 2 <= len(meta_match.groups()) else ''
-                    if label and value:
-                        story.append(Paragraph(f"<b>{label}</b>{value}", body_style))
+        meta_pattern = r'<p><strong>([^<]+)</strong>([^<]*)</p>'
+        meta_matches = re.findall(meta_pattern, html_content)
+        for label, value in meta_matches:
+            value = value.strip()
+            if value and value != 'N/A':
+                story.append(Paragraph(f"<b>{label}</b>{value}", body_style))
         
         story.append(Spacer(1, 20))
         
-        # 提取文章内容
+        # 提取文章内容（已清理）
         article_match = re.search(r'<h2[^>]*>📝[^<]*</h2>.*?<div class="article-content">(.*?)</div>', html_content, re.DOTALL)
         if article_match:
             story.append(Paragraph("📝 文章内容", heading_style))
             article_text = re.sub(r'<[^>]+>', '', article_match.group(1))
-            article_text = article_text[:500] + '...' if len(article_text) > 500 else article_text
+            # 清理文件路径
+            article_text = clean_article_content(article_text)
+            # 截取前800字
+            article_text = article_text[:800] + '...' if len(article_text) > 800 else article_text
             story.append(Paragraph(article_text, small_style))
             story.append(Spacer(1, 15))
         
-        # 提取评分
+        # 提取评分（如果有）
         score_match = re.search(r'<div class="score">(\d+)</div>', html_content)
         if score_match:
             score = score_match.group(1)
@@ -162,34 +174,68 @@ def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
         if rounds_section:
             story.append(Paragraph("🔄 辩论过程", heading_style))
             
-            # 提取每轮
+            # 提取每轮 - 使用 finditer 找到每轮的起始位置
             round_pattern = r'<h3[^>]*>第\s*(\d+)\s*轮</h3>'
-            rounds = re.split(round_pattern, rounds_section.group(1))
+            content = rounds_section.group(1)
+            matches = list(re.finditer(round_pattern, content))
             
-            for i in range(1, len(rounds), 2):
-                round_num = rounds[i]
-                round_content = rounds[i + 1] if i + 1 < len(rounds) else ''
+            for idx, m in enumerate(matches):
+                round_num = m.group(1)
+                # 每轮内容从当前位置到下一轮之前
+                start = m.end()
+                end = matches[idx + 1].start() if idx + 1 < len(matches) else len(content)
+                round_content = content[start:end]
                 
                 story.append(Paragraph(f"<b>第 {round_num} 轮</b>", subheading_style))
                 
-                # 提取批评者
-                critics_section = re.search(r'<h4[^>]*>👥[^<]*</h4>(.*?)(?:<h4|<h3|<div class="round-section")', round_content, re.DOTALL)
-                if critics_section:
-                    story.append(Paragraph("批评者观点：", small_style))
-                    critic_content = re.sub(r'<div class="critic-content">.*?<div[^>]*>(.*?)</div>\s*<div>(.*?)</div>.*?</div>', r'\1: \2', critics_section.group(1), flags=re.DOTALL)
-                    critic_text = re.sub(r'<[^>]+>', '', critic_content)
-                    critic_text = critic_text.strip()[:300] + '...' if len(critic_text.strip()) > 300 else critic_text.strip()
-                    if critic_text:
-                        story.append(Paragraph(critic_text, small_style))
+                # 提取批评者观点 - 使用分割方法
+                critic_parts = re.split(r'(<div class="critic-content">)', round_content)
+                critics_html = []
+                current = ''
+                for p in critic_parts:
+                    if p == '<div class="critic-content">':
+                        current = p
+                    else:
+                        current += p
+                        if '</div>' in current and 'agent-name' in current:
+                            critics_html.append(current)
+                            current = ''
                 
-                # 提取辩护者
-                defenders_section = re.search(r'辩护者观点.*?<div class="defender-content">.*?<div[^>]*>(.*?)</div>\s*<div>(.*?)</div>', round_content, re.DOTALL)
-                if defenders_section:
+                if critics_html:
+                    story.append(Paragraph("批评者观点：", small_style))
+                    for critic_html in critics_html[:5]:  # 最多5个批评者
+                        name_match = re.search(r'class="agent-name"[^>]*>([^<]+)', critic_html)
+                        text_content = re.sub(r'<[^>]+>', '', critic_html)
+                        text_content = re.sub(r'🔴|🟢', '', text_content).strip()
+                        text_content = text_content[:200] + '...' if len(text_content) > 200 else text_content
+                        if name_match and text_content:
+                            name = name_match.group(1).replace('🔴 ', '').replace('🟢 ', '')
+                            story.append(Paragraph(f"<b>{name}:</b> {text_content}", small_style))
+                
+                # 提取辩护者观点 - 使用同样的分割方法
+                defender_parts = re.split(r'(<div class="defender-content">)', round_content)
+                defenders_html = []
+                current = ''
+                for p in defender_parts:
+                    if p == '<div class="defender-content">':
+                        current = p
+                    else:
+                        current += p
+                        if '</div>' in current and 'agent-name' in current:
+                            defenders_html.append(current)
+                            current = ''
+                
+                if defenders_html:
+                    story.append(Spacer(1, 5))
                     story.append(Paragraph("辩护者观点：", small_style))
-                    defender_text = re.sub(r'<[^>]+>', '', defenders_section.group(2))
-                    defender_text = defender_text.strip()[:300] + '...' if len(defender_text.strip()) > 300 else defender_text.strip()
-                    if defender_text:
-                        story.append(Paragraph(defender_text, small_style))
+                    for defender_html in defenders_html[:4]:  # 最多4个辩护者
+                        name_match = re.search(r'class="agent-name"[^>]*>([^<]+)', defender_html)
+                        text_content = re.sub(r'<[^>]+>', '', defender_html)
+                        text_content = re.sub(r'🔴|🟢', '', text_content).strip()
+                        text_content = text_content[:200] + '...' if len(text_content) > 200 else text_content
+                        if name_match and text_content:
+                            name = name_match.group(1).replace('🔴 ', '').replace('🟢 ', '')
+                            story.append(Paragraph(f"<b>{name}:</b> {text_content}", small_style))
                 
                 story.append(Spacer(1, 10))
         
@@ -230,6 +276,18 @@ def get_html_report_template(project_data: dict) -> str:
     config = project_data.get('config', {})
     rounds = project_data.get('rounds', [])
     final_report = project_data.get('final_report') or {}
+    created_at = project_data.get('created_at', '')
+    
+    # 格式化创建时间
+    if created_at and created_at != 'N/A':
+        try:
+            # 格式: 2026-04-25T03:46:41.917206 -> 2026-04-25 03:46:41
+            created_at = created_at.replace('T', ' ').split('.')[0]
+        except:
+            created_at = ''
+    
+    # 清理文章内容中的文件路径
+    article = clean_article_content(article)
     
     # 构建HTML
     html_parts = [
@@ -438,7 +496,7 @@ def get_html_report_template(project_data: dict) -> str:
     
     <div class="meta">
         <p><strong>项目名称：</strong>{project_data.get('title', '未命名')}</p>
-        <p><strong>创建时间：</strong>{project_data.get('created_at', 'N/A')}</p>
+        <p><strong>创建时间：</strong>{created_at or 'N/A'}</p>
         <p><strong>辩论配置：</strong>{config.get('rounds', 1)}轮 | {len(config.get('critics', []))}位批评者 | {len(config.get('defenders', []))}位辩护者</p>
     </div>
     
@@ -532,17 +590,17 @@ def get_html_report_template(project_data: dict) -> str:
     <h2>🔄 辩论过程</h2>
 """)
         for round_data in rounds:
-            round_num = round_data.get('round_num', 1)
+            round_num = round_data.get('round_num', round_data.get('roundNum', 1))
             html_parts.append(f"""
     <div class="round-section">
         <h3>第 {round_num} 轮</h3>
 """)
             
-            # 批评者
+            # 批评者 - 支持 dict 和 list 两种格式
             critics = round_data.get('critics', {})
             if critics:
                 html_parts.append("<h4>👥 批评者观点</h4>")
-                # critics is a dict: {name: content}
+                # dict 格式: {name: content}
                 if isinstance(critics, dict):
                     for name, content in critics.items():
                         content_html = markdown_to_html(content)
@@ -552,22 +610,25 @@ def get_html_report_template(project_data: dict) -> str:
             <div>{content_html}</div>
         </div>
 """)
-                else:
-                    # Fallback for list format
+                # list 格式: [{name, content}]
+                elif isinstance(critics, list):
                     for critic in critics:
-                        content_html = markdown_to_html(critic.get('content', ''))
-                        html_parts.append(f"""
+                        if isinstance(critic, dict):
+                            name = critic.get('name', '批评者')
+                            content = critic.get('content', '')
+                            content_html = markdown_to_html(content)
+                            html_parts.append(f"""
         <div class="critic-content">
-            <div class="agent-name">🔴 {critic.get('name', '批评者')}</div>
+            <div class="agent-name">🔴 {name}</div>
             <div>{content_html}</div>
         </div>
 """)
             
-            # 辩护者
+            # 辩护者 - 支持 dict 和 list 两种格式
             defenders = round_data.get('defenders', {})
             if defenders:
                 html_parts.append("<h4>👥 辩护者观点</h4>")
-                # defenders is a dict: {name: content}
+                # dict 格式: {name: content}
                 if isinstance(defenders, dict):
                     for name, content in defenders.items():
                         content_html = markdown_to_html(content)
@@ -577,13 +638,16 @@ def get_html_report_template(project_data: dict) -> str:
             <div>{content_html}</div>
         </div>
 """)
-                else:
-                    # Fallback for list format
+                # list 格式: [{name, content}]
+                elif isinstance(defenders, list):
                     for defender in defenders:
-                        content_html = markdown_to_html(defender.get('content', ''))
-                        html_parts.append(f"""
+                        if isinstance(defender, dict):
+                            name = defender.get('name', '辩护者')
+                            content = defender.get('content', '')
+                            content_html = markdown_to_html(content)
+                            html_parts.append(f"""
         <div class="defender-content">
-            <div class="agent-name">🟢 {defender.get('name', '辩护者')}</div>
+            <div class="agent-name">🟢 {name}</div>
             <div>{content_html}</div>
         </div>
 """)
@@ -593,7 +657,7 @@ def get_html_report_template(project_data: dict) -> str:
     # 页脚
     html_parts.append(f"""
     <div class="footer">
-        <p>本报告由 AI Readers 自动生成 | {project_data.get('created_at', '')}</p>
+        <p>本报告由 AI Readers 自动生成</p>
     </div>
 </body>
 </html>
