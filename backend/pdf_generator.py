@@ -1,7 +1,22 @@
 """PDF生成工具 - 使用Playwright支持中文"""
 
 import os
+import re
 from pathlib import Path
+
+import markdown
+
+
+def markdown_to_html(text: str) -> str:
+    """"Convert Markdown text to HTML with Chinese-friendly extensions"""
+    if not text:
+        return ''
+    # Convert markdown to HTML with tables and other extensions
+    html = markdown.markdown(
+        text,
+        extensions=['tables', 'fenced_code', 'codehilite', 'nl2br']
+    )
+    return html
 
 
 def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
@@ -213,6 +228,47 @@ def get_html_report_template(project_data: dict) -> str:
             font-weight: bold;
             margin-bottom: 5pt;
         }}
+        /* Markdown rendered content */
+        .critic-content table, .defender-content table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10pt 0;
+            font-size: 8pt;
+        }}
+        .critic-content th, .defender-content th {{
+            background: #e5e7eb;
+            padding: 4pt;
+            border: 1pt solid #d1d5db;
+            text-align: left;
+        }}
+        .critic-content td, .defender-content td {{
+            padding: 4pt;
+            border: 1pt solid #d1d5db;
+        }}
+        .critic-content pre, .defender-content pre {{
+            background: #f3f4f6;
+            padding: 8pt;
+            border-radius: 4pt;
+            overflow-x: auto;
+            font-size: 8pt;
+        }}
+        .critic-content code, .defender-content code {{
+            background: #f3f4f6;
+            padding: 1pt 3pt;
+            border-radius: 2pt;
+            font-size: 8pt;
+        }}
+        .critic-content ul, .critic-content ol,
+        .defender-content ul, .defender-content ol {{
+            margin: 6pt 0;
+            padding-left: 18pt;
+        }}
+        .critic-content li, .defender-content li {{
+            margin: 3pt 0;
+        }}
+        .critic-content strong, .defender-content strong {{
+            color: #1f2937;
+        }}
         ul, ol {{
             margin: 8pt 0;
             padding-left: 20pt;
@@ -340,10 +396,11 @@ def get_html_report_template(project_data: dict) -> str:
             if critics:
                 html_parts.append("<h4>👥 批评者观点</h4>")
                 for critic in critics:
+                    content_html = markdown_to_html(critic.get('content', ''))
                     html_parts.append(f"""
         <div class="critic-content">
             <div class="agent-name">🔴 {critic.get('name', '批评者')}</div>
-            <div>{critic.get('content', '')}</div>
+            <div>{content_html}</div>
         </div>
 """)
             
@@ -352,10 +409,11 @@ def get_html_report_template(project_data: dict) -> str:
             if defenders:
                 html_parts.append("<h4>👥 辩护者观点</h4>")
                 for defender in defenders:
+                    content_html = markdown_to_html(defender.get('content', ''))
                     html_parts.append(f"""
         <div class="defender-content">
             <div class="agent-name">🟢 {defender.get('name', '辩护者')}</div>
-            <div>{defender.get('content', '')}</div>
+            <div>{content_html}</div>
         </div>
 """)
             
