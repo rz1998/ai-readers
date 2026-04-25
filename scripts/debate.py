@@ -1476,13 +1476,13 @@ def extract_critic_feedback(rounds: List[RoundResult]) -> Dict[str, List[Dict]]:
         for critic_name, critic_text in r.critic_views.items():
             # 模式1：匹配段落详细分析结构
             # **第X段** - 中心句："引文" - 问题：xxx - 建议：xxx
-            pattern1 = r'第(\d+)段\*\*[^*]*中心句[：:]?\s*[\'"]([^\'"]+)[\'"]?[^*]*问题[：:]\s*([^\n]+)[^*]*建议[：:]\s*([^\n]+)'
+            pattern1 = r'\*\*第(\d+)段\*\*\s*\n\s*-\s*中心句[：:]?\s*[\'"]([^\'"]+)[\'"]?[^*]*问题[：:]\s*([^\n]+)[^*]*建议[：:]\s*([^\n]+)'
             
             for match in re.finditer(pattern1, critic_text):
                 para_num = match.group(1)
                 quote = match.group(2).strip()
                 problem = match.group(3).strip()
-                suggestion = match.group(4).strip()
+                suggestion = match.group(4).strip().split('\n')[0]
                 
                 if quote and len(quote) > 2:
                     full_text = quote + problem + suggestion
