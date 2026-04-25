@@ -79,7 +79,7 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: (id: s
         {/* Delete button */}
         <button
           onClick={handleDelete}
-          className="absolute top-3 right-3 p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all text-muted-foreground hover:text-red-400 z-20"
+          className="absolute top-3 right-3 p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:opacity-100 transition-all text-muted-foreground hover:text-red-400 z-30 pointer-events-auto"
           title="删除项目"
         >
           <Trash2 size={16} />
@@ -128,6 +128,25 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: (id: s
               </div>
             </div>
 
+            {/* Progress bar */}
+            <div className="mt-3">
+              {project.status === 'pending' && (
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-yellow-500/50 rounded-full" style={{ width: '5%' }} />
+                </div>
+              )}
+              {project.status === 'debating' && (
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '50%' }} />
+                </div>
+              )}
+              {project.status === 'completed' && (
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500 rounded-full" style={{ width: '100%' }} />
+                </div>
+              )}
+            </div>
+
             {/* Score badge */}
             {score !== undefined && (
               <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
@@ -163,13 +182,14 @@ function UploadModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: { title: string; article: string; config: { rounds: number; critics: string[]; defenders: string[] } }) => void;
+  onSubmit: (data: { title: string; article?: string; config: { rounds: number; critics: string[]; defenders: string[] }; file?: File }) => void;
 }) {
   const [title, setTitle] = useState('');
   const [article, setArticle] = useState('');
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [fileName, setFileName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   // Debate configuration
   const [rounds, setRounds] = useState(3);
@@ -179,10 +199,11 @@ function UploadModal({
   const allCritics = ['结构批评者', '逻辑批评者', '语言批评者', '创意批评者', '技术批评者', '商业批评者'];
   const allDefenders = ['平衡辩护者', '共情辩护者', '内容辩护者', '表达辩护者'];
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setUploadFile(file);
     setFileName(file.name);
 
     // Extract title from filename if empty
@@ -191,32 +212,45 @@ function UploadModal({
       setTitle(nameWithoutExt);
     }
 
-    // Read file content
-    const text = await file.text();
-    setArticle(text);
+    // For text files, read content; for binary, just store reference
+    if (file.type.startsWith('text/') || file.name.match(/\.(txt|md|markdown)$/i)) {
+      file.text().then(text => setArticle(text));
+    } else {
+      setArticle(''); // Don't read binary files into memory
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !article.trim()) return;
+    if (!title.trim()) return;
+    if (inputMode === 'text' && !article.trim()) return;
+    if (inputMode === 'file' && !uploadFile) return;
+    
     setSubmitting(true);
-    await onSubmit({
-      title,
-      article,
-      config: {
-        rounds,
-        critics: selectedCritics,
-        defenders: selectedDefenders,
-      },
-    });
-    setSubmitting(false);
-    setTitle('');
-    setArticle('');
-    setFileName('');
-    setSelectedCritics(['结构批评者', '语言批评者']);
-    setSelectedDefenders(['平衡辩护者', '共情辩护者']);
-    setRounds(3);
-    onClose();
+    try {
+      await onSubmit({
+        title,
+        article: inputMode === 'text' ? article : undefined,
+        config: {
+          rounds,
+          critics: selectedCritics,
+          defenders: selectedDefenders,
+        },
+        file: inputMode === 'file' ? uploadFile || undefined : undefined,
+      });
+    } catch (err) {
+      console.error('Failed to create project:', err);
+    } finally {
+      setSubmitting(false);
+      setTitle('');
+      setArticle('');
+      setFileName('');
+      setUploadFile(null);
+      setSelectedCritics(['结构批评者', '语言批评者']);
+      setSelectedDefenders(['平衡辩护者', '共情辩护者']);
+      setRounds(3);
+      onClose();
+    }
   };
 
   const handleClose = () => {
@@ -452,7 +486,14 @@ function UploadModal({
             </button>
             <button
               type="submit"
-              disabled={submitting || !title.trim() || !article.trim() || selectedCritics.length === 0 || selectedDefenders.length === 0}
+              disabled={
+                submitting ||
+                !title.trim() ||
+                (inputMode === 'text' && !article.trim()) ||
+                (inputMode === 'file' && !uploadFile) ||
+                selectedCritics.length === 0 ||
+                selectedDefenders.length === 0
+              }
               className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 transition-all text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {submitting ? (
@@ -493,11 +534,12 @@ export function ProjectsPage() {
     fetchProjects();
   }, [setProjects, setLoading]);
 
-  const handleCreateProject = async (data: { title: string; article: string; config: { rounds: number; critics: string[]; defenders: string[] } }) => {
+  const handleCreateProject = async (data: { title: string; article?: string; config: { rounds: number; critics: string[]; defenders: string[] }; file?: File }) => {
     await projectApi.createProject({
       title: data.title,
       article: data.article,
       config: data.config,
+      file: data.file,
     });
     const updated = await projectApi.getProjects();
     setProjects(updated);

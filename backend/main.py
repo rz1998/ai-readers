@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""
+AI Readers Backend - FastAPI Server
+"""
+
+import asyncio
+import json
+import os
+import shutil
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+# Paths
+APP_DIR = Path(__file__).parent.parent
+HISTORY_DIR = APP_DIR / "history"
+DIST_DIR = APP_DIR / "dist"
+
+# Ensure directories exist
+HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+
+app = FastAPI(title="AI Readers API", version="1.0.0")
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Models
+class ProjectConfig(BaseModel):
+    rounds: int = 3
+    critics: List[str] = ["结构批评者", "语言批评者"]
+    defenders: List[str] = ["平衡辩护者", "共情辩护者"]
+
+
+# Helper functions
+def load_metadata(project_id: str) -> dict:
+    """Load project metadata"""
+    metadata_file = HISTORY_DIR / project_id / "metadata.json"
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    with open(metadata_file, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def save_metadata(project_id: str, metadata: dict):
+    """Save project metadata"""
+    metadata_file = HISTORY_DIR / project_id / "metadata.json"
+    with open(metadata_file, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+
+def extract_text_from_file(file_path: Path, content_type: str) -> str:
+    """Extract text from various file types"""
+    suffix = file_path.suffix.lower()
+    
+    # Plain text files
+    if suffix in ['.txt', '.md', '.markdown']:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read()
+    
+    # PDF files
+    elif suffix == '.pdf' or content_type == 'application/pdf':
+        try:
+            import PyPDF2
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+                return text
+        except ImportError:
+            return f"[PDF文件已保存，需安装PyPDF2提取文本]"
+        except Exception as e:
+            return f"[PDF文本提取失败: {str(e)}]"
+    
+    # DOCX files
+    elif suffix == '.docx' or content_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            return "\n".join([p.text for p in doc.paragraphs])
+        except ImportError:
+            return f"[DOCX文件已保存，需安装python-docx提取文本]"
+        except Exception as e:
+            return f"[DOCX文本提取失败: {str(e)}]"
+    
+    # Unknown format
+    else:
+        return f"[不支持的文件格式: {suffix}]"
+
+
+def load_project_for_response(project_id: str) -> dict:
+    """Load project and format for API response"""
+    metadata = load_metadata(project_id)
+    
+    # Load article content
+    article_file = HISTORY_DIR / project_id / "article.txt"
+    if article_file.exists():
+        with open(article_file, 'r', encoding='utf-8', errors='ignore') as f:
+            article = f.read()
+    else:
+        article = ""
+    
+    # Load debate result if exists
+    result_file = HISTORY_DIR / project_id / "debate_result.json"
+    final_report = None
+    if result_file.exists():
+        with open(result_file, 'r', encoding='utf-8') as f:
+            final_report = json.load(f)
+    
+    return {
+        "id": metadata["id"],
+        "title": metadata["title"],
+        "article": article,
+        "createdAt": metadata["created_at"],
+        "config": metadata.get("config", {}),
+        "status": metadata.get("status", "pending"),
+        "rounds": [],
+        "finalReport": final_report,
+    }
+
+
+def list_projects() -> List[dict]:
+    """List all projects"""
+    projects = []
+    
+    if not HISTORY_DIR.exists():
+        return projects
+    
+    for project_dir in sorted(HISTORY_DIR.iterdir(), reverse=True):
+        if project_dir.is_dir() and project_dir.name.startswith("debate_"):
+            try:
+                project = load_project_for_response(project_dir.name)
+                projects.append(project)
+            except Exception as e:
+                print(f"Error loading {project_dir.name}: {e}")
+                continue
+    
+    return projects
+
+
+# API Routes
+@app.get("/")
+async def root():
+    """Serve frontend"""
+    index_file = DIST_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return {"message": "AI Readers API", "version": "1.0.0"}
+
+
+@app.get("/api/projects")
+async def get_projects():
+    """Get all projects"""
+    return list_projects()
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: str):
+    """Get a single project"""
+    return load_project_for_response(project_id)
+
+
+# JSON body endpoint for programmatic access
+class CreateProjectJson(BaseModel):
+    title: str
+    article: str = ""
+    config: dict = {"rounds": 3, "critics": [], "defenders": []}
+
+
+@app.post("/api/projects/json")
+async def create_project_json(req: CreateProjectJson):
+    """Create a new project with JSON body"""
+    project_id = f"debate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    project_dir = HISTORY_DIR / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save metadata
+    metadata = {
+        "id": project_id,
+        "title": req.title,
+        "original_filename": None,
+        "content_type": "text/plain",
+        "file_size": len(req.article),
+        "created_at": datetime.now().isoformat(),
+        "status": "pending",
+        "config": req.config,
+    }
+    
+    # Save article content
+    if req.article:
+        text_file = project_dir / "article.txt"
+        with open(text_file, 'w', encoding='utf-8') as f:
+            f.write(req.article)
+    
+    save_metadata(project_id, metadata)
+    
+    return {
+        "id": project_id,
+        "title": req.title,
+        "createdAt": metadata["created_at"],
+        "config": req.config,
+        "status": "pending",
+    }
+
+
+@app.post("/api/projects")
+async def create_project(
+    title: str = Form(...),
+    config: str = Form(...),
+    file: Optional[UploadFile] = File(default=None),
+    article: Optional[str] = Form(default=None),
+):
+    """Create a new project with file upload or text (multipart/form-data)"""
+    project_id = f"debate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    project_dir = HISTORY_DIR / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    
+    config_dict = json.loads(config)
+    
+    # Handle file upload
+    original_filename = None
+    content_type = None
+    file_size = 0
+    article_content = article or ""
+    
+    if file and file.filename:
+        original_filename = file.filename
+        content_type = file.content_type or "application/octet-stream"
+        
+        # Save original file
+        file_path = project_dir / f"original{Path(file.filename).suffix}"
+        with open(file_path, 'wb') as f:
+            shutil.copyfileobj(file.file, f)
+        file_size = file_path.stat().st_size
+        
+        # Extract text from file
+        article_content = extract_text_from_file(file_path, content_type)
+        
+        # Save extracted text
+        text_file = project_dir / "article.txt"
+        with open(text_file, 'w', encoding='utf-8') as f:
+            f.write(article_content)
+    
+    # Save metadata
+    metadata = {
+        "id": project_id,
+        "title": title,
+        "original_filename": original_filename,
+        "content_type": content_type,
+        "file_size": file_size,
+        "created_at": datetime.now().isoformat(),
+        "status": "pending",
+        "config": config_dict,
+    }
+    save_metadata(project_id, metadata)
+    
+    return {
+        "id": project_id,
+        "title": title,
+        "createdAt": metadata["created_at"],
+        "config": config_dict,
+        "status": "pending",
+    }
+
+
+@app.post("/api/projects/{project_id}/debate")
+async def start_debate(project_id: str):
+    """Start debate for a project (async)"""
+    metadata = load_metadata(project_id)
+    metadata["status"] = "processing"
+    save_metadata(project_id, metadata)
+    
+    # Run debate in background
+    try:
+        asyncio.create_task(run_debate_async(project_id))
+    except Exception as e:
+        print(f"[Debate] Failed to start task: {e}")
+    
+    return {"success": True, "message": "Debate started", "status": "processing"}
+
+
+async def run_debate_async(project_id: str):
+    """Run debate script asynchronously on the host via mounted workspace"""
+    import subprocess
+    import shutil
+    import sys
+    
+    print(f"[Debate] Starting debate for {project_id}", flush=True)
+    
+    try:
+        # Load project metadata
+        metadata = load_metadata(project_id)
+        rounds = metadata.get("config", {}).get("rounds", 3)
+        
+        # Paths inside container (mounted from host)
+        workspace_dir = Path("/app/workspace")
+        host_history_dir = workspace_dir / "history"
+        article_file = host_history_dir / project_id / "article.txt"
+        script_path = workspace_dir / "scripts" / "debate.py"
+        
+        print(f"[Debate] workspace_dir={workspace_dir}", flush=True)
+        print(f"[Debate] article_file={article_file}", flush=True)
+        print(f"[Debate] script_path={script_path}", flush=True)
+        
+        # Copy article from container's history to host's history if needed
+        container_article = HISTORY_DIR / project_id / "article.txt"
+        if not article_file.exists() and container_article.exists():
+            host_project_dir = host_history_dir / project_id
+            host_project_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy(container_article, article_file)
+            print(f"[Debate] Copied article to host", flush=True)
+        
+        if not article_file.exists():
+            raise FileNotFoundError(f"Article file not found: {article_file}")
+        
+        # Run debate.py on the host (via mounted workspace)
+        print(f"[Debate] Running debate.py with {rounds} rounds", flush=True)
+        
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,  # Use same python
+            str(script_path),
+            "--file", str(article_file),
+            "--rounds", str(rounds),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(workspace_dir),
+        )
+        
+        stdout, stderr = await proc.communicate()
+        print(f"[Debate] debate.py returncode={proc.returncode}", flush=True)
+        
+        if stderr:
+            print(f"[Debate] stderr: {stderr.decode()[:200]}", flush=True)
+        
+        # Wait for file writes to complete
+        await asyncio.sleep(2)
+        
+        if proc.returncode == 0:
+            # Find the debate history on the host
+            result = subprocess.run(
+                ["ls", "-t", str(host_history_dir)],
+                capture_output=True, text=True
+            )
+            print(f"[Debate] ls result: {result.stdout[:200]}", flush=True)
+            
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for dir_name in lines:
+                    if dir_name.startswith("debate_") and dir_name != project_id:
+                        history_file = host_history_dir / dir_name / "debate_history.json"
+                        if history_file.exists():
+                            print(f"[Debate] Found result at {history_file}", flush=True)
+                            # Copy to container's project directory
+                            result_file = HISTORY_DIR / project_id / "debate_result.json"
+                            with open(history_file, 'r', encoding='utf-8') as f:
+                                result_data = json.load(f)
+                            with open(result_file, 'w', encoding='utf-8') as f:
+                                json.dump(result_data, f, ensure_ascii=False, indent=2)
+                            
+                            # Update status
+                            metadata = load_metadata(project_id)
+                            metadata["status"] = "completed"
+                            save_metadata(project_id, metadata)
+                            print(f"[Debate] Success!", flush=True)
+                            return
+            
+            # Failed to find result
+            metadata = load_metadata(project_id)
+            metadata["status"] = "failed"
+            metadata["error"] = "Debate completed but result file not found"
+            save_metadata(project_id, metadata)
+            print(f"[Debate] Failed: result file not found", flush=True)
+        else:
+            metadata = load_metadata(project_id)
+            metadata["status"] = "failed"
+            metadata["error"] = stderr.decode('utf-8', errors='ignore')[:500] if stderr else "Unknown error"
+            save_metadata(project_id, metadata)
+            print(f"[Debate] Failed: {metadata['error'][:100]}", flush=True)
+    except Exception as e:
+        print(f"[Debate] Exception: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        try:
+            metadata = load_metadata(project_id)
+            metadata["status"] = "failed"
+            metadata["error"] = str(e)[:500]
+            save_metadata(project_id, metadata)
+        except:
+            pass
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    """Delete a project"""
+    import shutil
+    project_dir = HISTORY_DIR / project_id
+    
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    shutil.rmtree(project_dir)
+    return {"success": True}
+
+
+# Serve static files if dist exists
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)

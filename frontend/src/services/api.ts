@@ -3,7 +3,7 @@ import type { Project, RoundResult, FinalReport, AgentView } from '@/types';
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 300000, // 5 minutes for large uploads
 });
 
 // Mock data generator based on real history structure
@@ -185,42 +185,48 @@ function generateMockFinalReport(): FinalReport {
   };
 }
 
+// Check if real API is available
+const USE_MOCK = false; // Set to true only for development without backend
+
 // Real API calls
 export const projectApi = {
   // Get all projects
   getProjects: async (): Promise<Project[]> => {
+    if (USE_MOCK) {
+      return generateMockProjects();
+    }
     try {
       const res = await api.get('/projects');
       return res.data.data || res.data;
     } catch {
-      // Return mock data if API not available
+      console.log('[API] Using mock data for getProjects');
       return generateMockProjects();
     }
   },
 
   // Get single project
   getProject: async (id: string): Promise<Project | null> => {
+    if (USE_MOCK) {
+      const projects = generateMockProjects();
+      return projects.find(p => p.id === id) || null;
+    }
     try {
       const res = await api.get(`/projects/${id}`);
       return res.data.data || res.data;
     } catch {
-      // Try mock
+      console.log('[API] Using mock data for getProject');
       const projects = generateMockProjects();
       return projects.find(p => p.id === id) || null;
     }
   },
 
-  // Create new project
-  createProject: async (data: { title: string; article: string; config: Project['config'] }): Promise<Project> => {
-    try {
-      const res = await api.post('/projects', data);
-      return res.data.data || res.data;
-    } catch {
-      // Mock response
+  // Create new project (with file upload)
+  createProject: async (data: { title: string; article?: string; config: Project['config']; file?: File }): Promise<Project> => {
+    if (USE_MOCK) {
       const newProject: Project = {
         id: `debate_${Date.now()}`,
         title: data.title,
-        article: data.article,
+        article: data.article || '',
         createdAt: new Date().toISOString(),
         config: data.config,
         status: 'pending',
@@ -229,10 +235,39 @@ export const projectApi = {
       };
       return newProject;
     }
+    
+    try {
+      const formData = new FormData();
+      formData.append('title', data.title);
+      formData.append('config', JSON.stringify(data.config));
+      
+      if (data.file) {
+        formData.append('file', data.file);
+      } else if (data.article) {
+        formData.append('article', data.article);
+      }
+      
+      console.log('[API] Creating project, file:', data.file?.name, 'article length:', data.article?.length || 0);
+      
+      const res = await api.post('/projects', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000, // 5 minutes
+      });
+      
+      console.log('[API] Project created:', res.data);
+      return res.data;
+    } catch (error: any) {
+      console.error('[API] createProject failed:', error?.message || error);
+      console.error('[API] Error details:', error?.response?.data);
+      throw error; // Don't fall back to mock
+    }
   },
 
   // Start debate
   startDebate: async (id: string): Promise<{ success: boolean }> => {
+    if (USE_MOCK) {
+      return { success: true };
+    }
     try {
       const res = await api.post(`/projects/${id}/debate`);
       return res.data;
@@ -243,6 +278,9 @@ export const projectApi = {
 
   // Delete project
   deleteProject: async (id: string): Promise<{ success: boolean }> => {
+    if (USE_MOCK) {
+      return { success: true };
+    }
     try {
       await api.delete(`/projects/${id}`);
       return { success: true };

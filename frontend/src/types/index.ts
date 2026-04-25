@@ -8,7 +8,7 @@ export interface Project {
     critics: string[];
     defenders: string[];
   };
-  status: 'pending' | 'debating' | 'completed';
+  status: 'pending' | 'processing' | 'debating' | 'completed';
   rounds: RoundResult[];
   finalReport?: FinalReport;
 }
