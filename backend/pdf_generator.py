@@ -276,7 +276,7 @@ def get_html_report_template(project_data: dict) -> str:
     config = project_data.get('config', {})
     rounds = project_data.get('rounds', [])
     final_report = project_data.get('final_report') or {}
-    created_at = project_data.get('created_at', '')
+    created_at = project_data.get('created_at', project_data.get('createdAt', ''))
     
     # 格式化创建时间
     if created_at and created_at != 'N/A':
