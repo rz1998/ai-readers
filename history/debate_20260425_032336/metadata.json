@@ -1,0 +1,14 @@
+{
+  "id": "debate_20260425_032336",
+  "title": "测试1MB文件",
+  "original_filename": "test_1mb.pdf",
+  "content_type": "application/pdf",
+  "file_size": 1048576,
+  "created_at": "2026-04-25T03:23:36.960616",
+  "status": "pending",
+  "config": {
+    "rounds": 1,
+    "critics": [],
+    "defenders": []
+  }
+}

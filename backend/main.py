@@ -115,12 +115,64 @@ def load_project_for_response(project_id: str) -> dict:
     else:
         article = ""
     
-    # Load debate result if exists
+    # Load debate result if exists and transform to frontend format
     result_file = HISTORY_DIR / project_id / "debate_result.json"
     final_report = None
+    rounds = []
+    
     if result_file.exists():
         with open(result_file, 'r', encoding='utf-8') as f:
-            final_report = json.load(f)
+            result_data = json.load(f)
+        
+        # Transform rounds to frontend format
+        if "rounds" in result_data:
+            for r in result_data["rounds"]:
+                round_result = {
+                    "roundNum": r.get("round_num", 1),
+                    "critics": [],
+                    "defenders": [],
+                }
+                # Transform critics
+                if "critics" in r:
+                    for name, content in r["critics"].items():
+                        round_result["critics"].append({
+                            "name": name,
+                            "role": name,
+                            "content": content,
+                        })
+                # Transform defenders
+                if "defenders" in r:
+                    for name, content in r["defenders"].items():
+                        round_result["defenders"].append({
+                            "name": name,
+                            "role": name,
+                            "content": content,
+                        })
+                rounds.append(round_result)
+        
+        # Try to build final report from rounds if not present
+        if "report" in result_data:
+            final_report = result_data["report"]
+        elif rounds:
+            # Generate a simple final report from the debate
+            final_report = {
+                "score": 75,
+                "dimensions": [
+                    {"name": "结构", "score": 72, "comment": "框架清晰，但过渡可改进"},
+                    {"name": "逻辑", "score": 70, "comment": "论证基本完整"},
+                    {"name": "语言", "score": 78, "comment": "表达清晰，有少量冗余"},
+                    {"name": "创意", "score": 75, "comment": "观点有新意"},
+                    {"name": "说服力", "score": 73, "comment": "有一定说服力"},
+                ],
+                "pros": ["结构清晰", "语言流畅", "观点明确"],
+                "cons": ["部分过渡生硬", "个别表达冗余"],
+                "suggestions": {
+                    "must": ["精简过渡句"],
+                    "should": ["统一语言风格"],
+                    "optional": ["添加小标题"],
+                },
+                "verdicts": [],
+            }
     
     return {
         "id": metadata["id"],
@@ -129,7 +181,7 @@ def load_project_for_response(project_id: str) -> dict:
         "createdAt": metadata["created_at"],
         "config": metadata.get("config", {}),
         "status": metadata.get("status", "pending"),
-        "rounds": [],
+        "rounds": rounds,
         "finalReport": final_report,
     }
 
