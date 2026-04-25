@@ -5,7 +5,9 @@ AI Readers Backend - FastAPI Server
 
 import asyncio
 import json
+import logging
 import os
+import re
 import shutil
 import tempfile
 from datetime import datetime
@@ -13,6 +15,22 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Valid project_id pattern (alphanumeric, underscore, hyphen)
+PROJECT_ID_PATTERN = re.compile(r'^[\w-]+$')
+
+
+def validate_project_id(project_id: str) -> None:
+    """Validate project_id format to prevent path traversal"""
+    if not PROJECT_ID_PATTERN.match(project_id):
+        raise HTTPException(status_code=400, detail="Invalid project_id format")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -59,6 +77,7 @@ class ProjectConfig(BaseModel):
 # Helper functions
 def load_metadata(project_id: str) -> dict:
     """Load project metadata"""
+    validate_project_id(project_id)
     metadata_file = HISTORY_DIR / project_id / "metadata.json"
     if not metadata_file.exists():
         raise HTTPException(status_code=404, detail="Project not found")
@@ -69,6 +88,7 @@ def load_metadata(project_id: str) -> dict:
 
 def save_metadata(project_id: str, metadata: dict):
     """Save project metadata"""
+    validate_project_id(project_id)
     metadata_file = HISTORY_DIR / project_id / "metadata.json"
     with open(metadata_file, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
@@ -221,7 +241,7 @@ def list_projects() -> List[dict]:
                 project = load_project_for_response(project_dir.name)
                 projects.append(project)
             except Exception as e:
-                print(f"Error loading {project_dir.name}: {e}")
+                logger.warning(f"Error loading {project_dir.name}: {e}")
                 continue
     
     return projects
@@ -359,11 +379,17 @@ async def start_debate(project_id: str, request: Request):
     metadata["status"] = "processing"
     save_metadata(project_id, metadata)
     
-    # Run debate in background
+    # Run debate in background with timeout protection
+    DEBATE_TIMEOUT = 600  # 10 minutes max
     try:
-        asyncio.create_task(run_debate_async(project_id))
+        task = asyncio.create_task(run_debate_async(project_id))
+        # Add timeout to prevent orphaned tasks
+        asyncio.get_event_loop().call_later(
+            DEBATE_TIMEOUT,
+            lambda: task.cancel() if not task.done() else None
+        )
     except Exception as e:
-        print(f"[Debate] Failed to start task: {e}")
+        logger.error(f"[Debate] Failed to start task: {e}")
     
     return {"success": True, "message": "Debate started", "status": "processing"}
 
@@ -374,7 +400,7 @@ async def run_debate_async(project_id: str):
     import shutil
     import sys
     
-    print(f"[Debate] Starting debate for {project_id}", flush=True)
+    logger.info(f"[Debate] Starting debate for {project_id}")
     
     try:
         # Load project metadata
@@ -390,10 +416,10 @@ async def run_debate_async(project_id: str):
         article_file = host_history_dir / project_id / "article.txt"
         script_path = workspace_dir / "scripts" / "debate.py"
         
-        print(f"[Debate] workspace_dir={workspace_dir}", flush=True)
-        print(f"[Debate] article_file={article_file}", flush=True)
-        print(f"[Debate] script_path={script_path}", flush=True)
-        print(f"[Debate] critics={critics}, defenders={defenders}", flush=True)
+        logger.info(f"[Debate] workspace_dir={workspace_dir}")
+        logger.info(f"[Debate] article_file={article_file}")
+        logger.info(f"[Debate] script_path={script_path}")
+        logger.info(f"[Debate] critics={critics}, defenders={defenders}")
         
         # Copy article from container's history to host's history if needed
         container_article = HISTORY_DIR / project_id / "article.txt"
@@ -401,7 +427,7 @@ async def run_debate_async(project_id: str):
             host_project_dir = host_history_dir / project_id
             host_project_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy(container_article, article_file)
-            print(f"[Debate] Copied article to host", flush=True)
+            logger.info(f"[Debate] Copied article to host")
         
         if not article_file.exists():
             raise FileNotFoundError(f"Article file not found: {article_file}")
@@ -418,14 +444,12 @@ async def run_debate_async(project_id: str):
         
         # Add critics and defenders if specified
         if critics:
-            import json
             cmd_args.extend(["--critics-list", json.dumps(critics)])
         if defenders:
-            import json
             cmd_args.extend(["--defenders-list", json.dumps(defenders)])
         
         # Run debate.py on the host (via mounted workspace)
-        print(f"[Debate] Running debate.py with {rounds} rounds, critics={critics}, defenders={defenders}", flush=True)
+        logger.info(f"[Debate] Running debate.py with {rounds} rounds, critics={critics}, defenders={defenders}")
         
         proc = await asyncio.create_subprocess_exec(
             *cmd_args,
@@ -435,10 +459,10 @@ async def run_debate_async(project_id: str):
         )
         
         stdout, stderr = await proc.communicate()
-        print(f"[Debate] debate.py returncode={proc.returncode}", flush=True)
+        logger.info(f"[Debate] debate.py returncode={proc.returncode}")
         
         if stderr:
-            print(f"[Debate] stderr: {stderr.decode()[:200]}", flush=True)
+            logger.info(f"[Debate] stderr: {stderr.decode()[:200]}")
         
         # Wait for file writes to complete
         await asyncio.sleep(2)
@@ -448,7 +472,7 @@ async def run_debate_async(project_id: str):
             history_file = host_history_dir / project_id / "debate_history.json"
             
             if history_file.exists():
-                print(f"[Debate] Found result at {history_file}", flush=True)
+                logger.info(f"[Debate] Found result at {history_file}")
                 # Copy to container's project directory
                 result_file = HISTORY_DIR / project_id / "debate_result.json"
                 with open(history_file, 'r', encoding='utf-8') as f:
@@ -460,7 +484,7 @@ async def run_debate_async(project_id: str):
                 metadata = load_metadata(project_id)
                 metadata["status"] = "completed"
                 save_metadata(project_id, metadata)
-                print(f"[Debate] Success!", flush=True)
+                logger.info(f"[Debate] Success!")
                 return
             
             # Failed to find result
@@ -468,15 +492,15 @@ async def run_debate_async(project_id: str):
             metadata["status"] = "failed"
             metadata["error"] = "Debate completed but result file not found"
             save_metadata(project_id, metadata)
-            print(f"[Debate] Failed: result file not found at {history_file}", flush=True)
+            logger.info(f"[Debate] Failed: result file not found at {history_file}")
         else:
             metadata = load_metadata(project_id)
             metadata["status"] = "failed"
             metadata["error"] = stderr.decode('utf-8', errors='ignore')[:500] if stderr else "Unknown error"
             save_metadata(project_id, metadata)
-            print(f"[Debate] Failed: {metadata['error'][:100]}", flush=True)
+            logger.info(f"[Debate] Failed: {metadata['error'][:100]}")
     except Exception as e:
-        print(f"[Debate] Exception: {e}", flush=True)
+        logger.info(f"[Debate] Exception: {e}")
         import traceback
         traceback.print_exc()
         try:

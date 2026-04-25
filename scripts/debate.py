@@ -55,7 +55,7 @@ class RoundResult:
 class DebateHistory:
     """辩论历史记录器"""
     
-    def __init__(self, article: str, config: 'DebateConfig', output_dir: str = None):
+    def __init__(self, article: str, config: 'DebateConfig', output_dir: Optional[str] = None) -> None:
         self.article = article
         self.config = config
         self.rounds: List[RoundResult] = []
@@ -67,7 +67,7 @@ class DebateHistory:
             self.debate_id = f"debate_{self.timestamp}"
             self.output_dir = os.path.join(SKILL_DIR, "history", self.debate_id)
     
-    def add_round(self, result: RoundResult):
+    def add_round(self, result: RoundResult) -> None:
         """添加一轮结果"""
         self.rounds.append(result)
     
@@ -256,7 +256,7 @@ class DebateConfig:
         
         self.editor = self.DEFAULT_EDITOR
     
-    def __str__(self):
+    def __str__(self) -> str:
         return f"DebateConfig(rounds={self.rounds}, critics={len(self.critics)}, defenders={len(self.defenders)})"
 
 
@@ -700,7 +700,7 @@ class Editor:
         return report
 
 
-def parse_arguments():
+def parse_arguments() -> Tuple[Any, str]:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
         description="AI Readers - 多Agent多视角辩论评审系统",
@@ -839,7 +839,7 @@ def run_debate(article: str, config: DebateConfig, verbose: bool = False,
     return report
 
 
-def main():
+def main() -> None:
     """主函数"""
     args, article = parse_arguments()
     
