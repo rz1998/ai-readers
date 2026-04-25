@@ -17,6 +17,7 @@ services:
       - /home/rz1998/workspace/ai-readers:/app/workspace
     environment:
       - PYTHONUNBUFFERED=1
+      - ALLOWED_ORIGINS=http://localhost:8086,http://10.147.18.38:8086
     restart: unless-stopped
 
   nginx:

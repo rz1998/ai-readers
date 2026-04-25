@@ -28,14 +28,25 @@ HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="AI Readers API", version="1.0.0")
 
-# CORS
+# CORS - restrict origins in production
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:8086,http://10.147.18.38:8086").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # Models
@@ -66,11 +77,12 @@ def save_metadata(project_id: str, metadata: dict):
 def extract_text_from_file(file_path: Path, content_type: str) -> str:
     """Extract text from various file types"""
     suffix = file_path.suffix.lower()
+    MAX_TEXT_LENGTH = 500000  # 500KB of text max
     
     # Plain text files
     if suffix in ['.txt', '.md', '.markdown']:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            return f.read()
+            return f.read()[:MAX_TEXT_LENGTH]
     
     # PDF files
     elif suffix == '.pdf' or content_type == 'application/pdf':
@@ -79,9 +91,19 @@ def extract_text_from_file(file_path: Path, content_type: str) -> str:
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
-                return text
+                total_pages = len(reader.pages)
+                max_pages = min(total_pages, 100)  # Limit to 100 pages
+                
+                for i in range(max_pages):
+                    page_text = reader.pages[i].extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+                    # Check text length periodically
+                    if len(text) > MAX_TEXT_LENGTH:
+                        text = text[:MAX_TEXT_LENGTH]
+                        break
+                
+                return text if text.strip() else "[PDF内容无法提取，已保存原文件]"
         except ImportError:
             return f"[PDF文件已保存，需安装PyPDF2提取文本]"
         except Exception as e:
@@ -331,6 +353,7 @@ async def create_project(
 
 
 @app.post("/api/projects/{project_id}/debate")
+@limiter.limit("5/minute")
 async def start_debate(project_id: str):
     """Start debate for a project (async)"""
     metadata = load_metadata(project_id)
