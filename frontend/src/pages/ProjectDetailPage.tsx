@@ -1033,33 +1033,6 @@ export function ProjectDetailPage() {
                 <SummaryReportSection summary={currentProject.summaryReport} />
               )}
 
-              {/* Article section */}
-              <div className="glass-dark rounded-xl overflow-hidden">
-                <button
-                  onClick={() => setArticleExpanded(!articleExpanded)}
-                  className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <BookOpen size={16} className="text-brand-400" />
-                    <span className="font-medium">文章原文</span>
-                  </div>
-                  {articleExpanded ? (
-                    <ChevronUp size={16} className="text-muted-foreground" />
-                  ) : (
-                    <ChevronDown size={16} className="text-muted-foreground" />
-                  )}
-                </button>
-                {articleExpanded && (
-                  <div className="px-4 pb-4 border-t border-white/5">
-                    <div className="prose-content text-sm max-h-96 overflow-y-auto">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {currentProject.article || '文章内容未加载'}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Debate rounds */}
               {filteredRounds.length > 0 && (
                 <div className="space-y-6">
