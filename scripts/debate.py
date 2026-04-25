@@ -1460,12 +1460,137 @@ class Editor:
 
 
 
+def extract_critic_feedback(rounds: List[RoundResult]) -> Dict[str, List[Dict]]:
+    """从辩论轮次中提取具体的批评反馈"""
+    feedback = {
+        "结构": [],
+        "语言": [],
+        "逻辑": [],
+        "创意": [],
+        "技术": [],
+        "内容": [],
+    }
+    
+    import re
+    
+    for r in rounds:
+        for critic_name, critic_text in r.critic_views.items():
+            # 匹配段落引用（简单模式）
+            paragraph_pattern = r'第(\d+)[段页]\s*[：:]?\s*[^\"\n]*["\"]([^"\n]+)["\"]?'
+            for match in re.finditer(paragraph_pattern, critic_text):
+                para_num = match.group(1)
+                quote = match.group(2) if match.lastindex >= 2 else ""
+                
+                # 查找该段落后续的问题和建议
+                start = match.end()
+                section_text = critic_text[start:start+500]
+                
+                # 提取问题
+                problem_match = re.search(r'问题[：:]?\s*([^\n\-建议]+)', section_text)
+                problem = problem_match.group(1).strip() if problem_match else ""
+                
+                # 提取建议
+                suggestion_match = re.search(r'建议[：:]?\s*([^\n]+)', section_text)
+                suggestion = suggestion_match.group(1).strip() if suggestion_match else ""
+                
+                if quote and (problem or suggestion):
+                    # 判断类别
+                    if "结构" in critic_text or "过渡" in section_text or "衔接" in section_text:
+                        feedback["结构"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                    elif "语言" in critic_text or "词汇" in section_text or "表达" in section_text:
+                        feedback["语言"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                    elif "逻辑" in critic_text or "论证" in section_text:
+                        feedback["逻辑"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                    elif "创意" in critic_text or "立意" in section_text:
+                        feedback["创意"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                    elif "技术" in critic_text or "标点" in section_text:
+                        feedback["技术"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                    else:
+                        feedback["内容"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+    
+    return feedback
+
+
+def make_issue_section(issue_name: str, specific_feedback: Dict) -> str:
+    """生成问题章节"""
+    section = f"### 2.x 【最重要】{issue_name}问题\n\n"
+    feedbacks = specific_feedback.get(issue_name, [])
+    
+    if feedbacks:
+        # 有具体反馈时，生成详细的改进建议
+        for i, fb in enumerate(feedbacks[:3], 1):  # 最多3条
+            quote_preview = fb['quote'][:80] + "..." if len(fb['quote']) > 80 else fb['quote']
+            section += f"""**问题{i}**
+- **原文引用**：「{quote_preview}」
+- **问题分析**：{fb['problem']}
+- **修改建议**：{fb['suggestion']}
+
+"""
+    else:
+        # 没有具体反馈时，生成通用建议
+        if issue_name == "结构":
+            section += """**问题分析**：文章结构存在优化空间，部分过渡和衔接不够自然
+
+**修改建议**：
+1. 仔细检查段落之间的过渡句，确保逻辑连贯
+2. 考虑在关键转折处添加承上启下的语句
+3. 参考优秀文章的结构处理方式
+
+"""
+        elif issue_name == "语言":
+            section += """**问题分析**：文章语言表达有提升空间，个别用词可以更精准
+
+**修改建议**：
+1. 精炼冗余表达，删除不必要的修饰词
+2. 统一全文语言风格
+3. 避免口语化表达（除非是有意为之）
+
+"""
+        elif issue_name == "逻辑":
+            section += """**问题分析**：论证逻辑基本清晰，但部分推理可以更严密
+
+**修改建议**：
+1. 检查因果关系是否成立
+2. 确保论据能够支撑论点
+3. 考虑添加反面论据增强说服力
+
+"""
+        elif issue_name == "创意":
+            section += """**问题分析**：文章立意有一定深度，但可以进一步挖掘
+
+**修改建议**：
+1. 在结尾处升华主题
+2. 添加独特的个人见解或洞察
+3. 考虑从新角度切入常见话题
+
+"""
+        elif issue_name == "技术":
+            section += """**问题分析**：技术细节方面存在一些小问题
+
+**修改建议**：
+1. 仔细校对标点符号使用
+2. 检查格式统一性
+3. 修正可能的错别字
+
+"""
+        else:
+            section += """**问题分析**：内容方面有完善空间
+
+**修改建议**：
+1. 补充具体数据或案例支撑
+2. 确保事实准确性
+3. 考虑添加更多实用建议
+
+"""
+    return section
+
+
 def generate_summary_report(article: str, rounds: List[RoundResult], config: DebateConfig) -> str:
     """生成面向作者的总结报告
     
     基于所有辩论轮次的内容，生成一份包含：
     1. 总体评价
-    2. 需要关注的问题（按重要性排序）
+    2. 需要关注的问题（按重要性排序）- 必须包含具体原文引用和修改建议
     3. 优点总结
     4. 优化优先级
     5. 行动建议
@@ -1485,7 +1610,6 @@ def generate_summary_report(article: str, rounds: List[RoundResult], config: Deb
         "创意": 0,
         "技术": 0,
         "内容": 0,
-        "其他": 0
     }
     
     for issue in all_issues:
@@ -1502,8 +1626,9 @@ def generate_summary_report(article: str, rounds: List[RoundResult], config: Deb
             issue_keywords["技术"] += 1
         elif "内容" in issue_lower or "事实" in issue_lower:
             issue_keywords["内容"] += 1
-        else:
-            issue_keywords["其他"] += 1
+    
+    # 提取具体反馈
+    specific_feedback = extract_critic_feedback(rounds)
     
     # 按频次排序问题类别
     sorted_issues = sorted(issue_keywords.items(), key=lambda x: x[1], reverse=True)
@@ -1512,6 +1637,11 @@ def generate_summary_report(article: str, rounds: List[RoundResult], config: Deb
     top_issue = sorted_issues[0][0] if sorted_issues else "结构"
     second_issue = sorted_issues[1][0] if len(sorted_issues) > 1 else "语言"
     third_issue = sorted_issues[2][0] if len(sorted_issues) > 2 else "技术"
+    
+    # 构建问题章节
+    top_issue_section = make_issue_section(top_issue, specific_feedback)
+    second_issue_section = make_issue_section(second_issue, specific_feedback)
+    third_issue_section = make_issue_section(third_issue, specific_feedback)
     
     # 生成总结报告
     summary = f"""
@@ -1529,32 +1659,21 @@ _本报告由 AI Readers 多Agent辩论系统自动生成_
 
 以下是辩论过程中各位批评者提出的主要问题，按出现频次排序：
 
-| 排名 | 问题类别 | 出现频次 |
-|------|----------|----------|
-| 1 | {top_issue} | {sorted_issues[0][1]} 次 |
-| 2 | {second_issue} | {sorted_issues[1][1] if len(sorted_issues) > 1 else 0} 次 |
-| 3 | {third_issue} | {sorted_issues[2][1] if len(sorted_issues) > 2 else 0} 次 |
+| 排名 | 问题类别 | 出现频次 | 具体问题数 |
+|------|----------|----------|------------|
+| 1 | {top_issue} | {sorted_issues[0][1] if sorted_issues else 0} 次 | {len(specific_feedback.get(top_issue, []))} 条 |
+| 2 | {second_issue} | {sorted_issues[1][1] if len(sorted_issues) > 1 else 0} 次 | {len(specific_feedback.get(second_issue, []))} 条 |
+| 3 | {third_issue} | {sorted_issues[2][1] if len(sorted_issues) > 2 else 0} 次 | {len(specific_feedback.get(third_issue, []))} 条 |
 
-### 2.1 【最重要】{top_issue}问题
-- **问题描述**：文章{top_issue}存在优化空间，部分细节处理不够完善
-- **修改建议**：
-  1. 仔细检查相关内容，确保逻辑清晰
-  2. 考虑添加必要的过渡和衔接
-  3. 参考优秀文章的处理方式
+---
 
-### 2.2 【重要】{second_issue}问题
-- **问题描述**：文章{second_issue}方面有提升空间
-- **修改建议**：
-  1. 精益求精，进一步打磨
-  2. 避免常见错误
-  3. 多参考同类型优秀作品
+{top_issue_section}
+---
 
-### 2.3 【次要】{third_issue}问题
-- **问题描述**：一些细节可以进一步完善
-- **修改建议**：
-  1. 仔细校对文字错误
-  2. 统一格式和标点使用
-  3. 检查排版美观性
+{second_issue_section}
+---
+
+{third_issue_section}
 
 ## 三、优点总结
 
@@ -1586,9 +1705,7 @@ _本报告由 AI Readers 多Agent辩论系统自动生成_
 _本总结由 AI Readers 基于{config.rounds}轮辩论内容自动生成_
 _参与角色：{', '.join([c[1] for c in config.critics])}_
 """
-    
     return summary
-
 
 
 def parse_arguments() -> Tuple[Any, str]:
