@@ -15,6 +15,8 @@ services:
       # Mount host's workspace for OpenClaw and scripts
       - /home/rz1998/.openclaw:/root/.openclaw:ro
       - /home/rz1998/workspace/ai-readers:/app/workspace
+      # Mount Chinese font file
+      - /home/rz1998/workspace/ai-readers/backend/LXGWWenKai-Regular.ttf:/app/LXGWWenKai-Regular.ttf:ro
     environment:
       - PYTHONUNBUFFERED=1
       - ALLOWED_ORIGINS=http://localhost:8086,http://10.147.18.38:8086

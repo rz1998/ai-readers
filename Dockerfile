@@ -3,7 +3,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Install minimal system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmupdf-dev \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f -v || true
+
+# Install Python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

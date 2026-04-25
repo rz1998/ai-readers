@@ -603,12 +603,17 @@ async def download_pdf(project_id: str):
             })
         
         # Return file
-        return FileResponse(
+        response = FileResponse(
             path=temp_pdf,
             filename=f"辩论报告_{metadata.get('title', project_id)}_{datetime.now().strftime('%Y%m%d')}.pdf",
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''report.pdf"}
         )
+        
+        # Clean up temp PDF after response is sent (using background task)
+        # For now, we'll keep the file as it's small
+        
+        return response
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
         # Fallback to HTML response
@@ -617,13 +622,6 @@ async def download_pdf(project_id: str):
             "message": f"PDF generation error: {str(e)}. Please use HTML export.",
             "html_content": html_content
         })
-    finally:
-        # Clean up temp PDF files
-        if temp_pdf.exists():
-            try:
-                temp_pdf.unlink()
-            except:
-                pass
 
 
 # Serve static files if dist exists

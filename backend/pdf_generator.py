@@ -1,17 +1,17 @@
-"""PDF生成工具 - 使用Playwright支持中文"""
+"""PDF生成工具 - 使用reportlab + 中文字体"""
 
 import os
 import re
+from io import BytesIO
 from pathlib import Path
 
 import markdown
 
 
 def markdown_to_html(text: str) -> str:
-    """"Convert Markdown text to HTML with Chinese-friendly extensions"""
+    """将Markdown文本转换为HTML"""
     if not text:
         return ''
-    # Convert markdown to HTML with tables and other extensions
     html = markdown.markdown(
         text,
         extensions=['tables', 'fenced_code', 'codehilite', 'nl2br']
@@ -31,40 +31,188 @@ def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
         bool: 是否成功
     """
     try:
-        from playwright.sync_api import sync_playwright
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.units import cm
         
-        with sync_playwright() as p:
-            # 启动chromium浏览器
-            browser = p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox']
-            )
+        # 注册中文字体
+        font_path = '/app/LXGWWenKai-Regular.ttf'
+        if os.path.exists(font_path):
+            pdfmetrics.registerFont(TTFont('LXGWWenKai', font_path))
+        else:
+            print(f"Font not found: {font_path}")
+            return False
+        
+        # 创建PDF
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=A4,
+            leftMargin=2*cm,
+            rightMargin=2*cm,
+            topMargin=2*cm,
+            bottomMargin=2*cm
+        )
+        
+        # 样式定义
+        title_style = ParagraphStyle(
+            'Title',
+            fontName='LXGWWenKai',
+            fontSize=18,
+            alignment=1,  # 居中
+            spaceAfter=20,
+        )
+        
+        heading_style = ParagraphStyle(
+            'Heading',
+            fontName='LXGWWenKai',
+            fontSize=14,
+            spaceBefore=15,
+            spaceAfter=10,
+            textColor=colors.HexColor('#1e40af'),
+        )
+        
+        subheading_style = ParagraphStyle(
+            'SubHeading',
+            fontName='LXGWWenKai',
+            fontSize=12,
+            spaceBefore=10,
+            spaceAfter=6,
+            textColor=colors.HexColor('#374151'),
+        )
+        
+        body_style = ParagraphStyle(
+            'Body',
+            fontName='LXGWWenKai',
+            fontSize=10,
+            leading=16,
+        )
+        
+        small_style = ParagraphStyle(
+            'Small',
+            fontName='LXGWWenKai',
+            fontSize=9,
+            leading=14,
+        )
+        
+        # 故事元素
+        story = []
+        
+        # 解析HTML内容
+        # 提取标题
+        title_match = re.search(r'<h1[^>]*>([^<]+)</h1>', html_content)
+        if title_match:
+            story.append(Paragraph(title_match.group(1), title_style))
+            story.append(Spacer(1, 10))
+        
+        # 提取元信息
+        meta_pattern = r'<div class="meta">.*?<p><strong>([^<]+)</strong>([^<]*)</p>.*?<p><strong>([^<]+)</strong>([^<]*)</p>.*?<p><strong>([^<]+)</strong>([^<]*)</p>'
+        meta_match = re.search(meta_pattern, html_content, re.DOTALL)
+        if meta_match:
+            for i in range(0, len(meta_match.groups()), 2):
+                if i + 1 < len(meta_match.groups()):
+                    label = meta_match.group(i + 1)
+                    value = meta_match.group(i + 2).strip() if i + 2 <= len(meta_match.groups()) else ''
+                    if label and value:
+                        story.append(Paragraph(f"<b>{label}</b>{value}", body_style))
+        
+        story.append(Spacer(1, 20))
+        
+        # 提取文章内容
+        article_match = re.search(r'<h2[^>]*>📝[^<]*</h2>.*?<div class="article-content">(.*?)</div>', html_content, re.DOTALL)
+        if article_match:
+            story.append(Paragraph("📝 文章内容", heading_style))
+            article_text = re.sub(r'<[^>]+>', '', article_match.group(1))
+            article_text = article_text[:500] + '...' if len(article_text) > 500 else article_text
+            story.append(Paragraph(article_text, small_style))
+            story.append(Spacer(1, 15))
+        
+        # 提取评分
+        score_match = re.search(r'<div class="score">(\d+)</div>', html_content)
+        if score_match:
+            score = score_match.group(1)
+            story.append(Paragraph(f"<b>综合评分：</b>{score} / 10", body_style))
+            story.append(Spacer(1, 15))
+        
+        # 提取优点
+        pros_match = re.search(r'<h3[^>]*>✅[^<]*</h3>(.*?)</ul>', html_content, re.DOTALL)
+        if pros_match:
+            story.append(Paragraph("✅ 优点", subheading_style))
+            items = re.findall(r'<li>(.*?)</li>', pros_match.group(1), re.DOTALL)
+            for item in items[:5]:
+                item_text = re.sub(r'<[^>]+>', '', item)
+                story.append(Paragraph(f"• {item_text}", small_style))
+        
+        # 提取缺点
+        cons_match = re.search(r'<h3[^>]*>❌[^<]*</h3>(.*?)</ul>', html_content, re.DOTALL)
+        if cons_match:
+            story.append(Paragraph("❌ 缺点", subheading_style))
+            items = re.findall(r'<li>(.*?)</li>', cons_match.group(1), re.DOTALL)
+            for item in items[:5]:
+                item_text = re.sub(r'<[^>]+>', '', item)
+                story.append(Paragraph(f"• {item_text}", small_style))
+        
+        story.append(Spacer(1, 15))
+        
+        # 提取辩论过程
+        rounds_section = re.search(r'<h2[^>]*>🔄[^<]*</h2>(.*?)(?:<div class="footer"|</body>)', html_content, re.DOTALL)
+        if rounds_section:
+            story.append(Paragraph("🔄 辩论过程", heading_style))
             
-            # 创建新的浏览器上下文和页面
-            context = browser.new_context(
-                viewport={'width': 794, 'height': 1123},  # A4 size in pixels at 96 DPI
-            )
-            page = context.new_page()
+            # 提取每轮
+            round_pattern = r'<h3[^>]*>第\s*(\d+)\s*轮</h3>'
+            rounds = re.split(round_pattern, rounds_section.group(1))
             
-            # 设置HTML内容
-            page.set_content(html_content, wait_until='networkidle')
-            
-            # 生成PDF
-            page.pdf(
-                path=output_path,
-                format='A4',
-                print_background=True,
-                margin={'top': '2cm', 'bottom': '2cm', 'left': '2cm', 'right': '2cm'}
-            )
-            
-            # 关闭
-            context.close()
-            browser.close()
-            
-        return True
+            for i in range(1, len(rounds), 2):
+                round_num = rounds[i]
+                round_content = rounds[i + 1] if i + 1 < len(rounds) else ''
+                
+                story.append(Paragraph(f"<b>第 {round_num} 轮</b>", subheading_style))
+                
+                # 提取批评者
+                critics_section = re.search(r'<h4[^>]*>👥[^<]*</h4>(.*?)(?:<h4|<h3|<div class="round-section")', round_content, re.DOTALL)
+                if critics_section:
+                    story.append(Paragraph("批评者观点：", small_style))
+                    critic_content = re.sub(r'<div class="critic-content">.*?<div[^>]*>(.*?)</div>\s*<div>(.*?)</div>.*?</div>', r'\1: \2', critics_section.group(1), flags=re.DOTALL)
+                    critic_text = re.sub(r'<[^>]+>', '', critic_content)
+                    critic_text = critic_text.strip()[:300] + '...' if len(critic_text.strip()) > 300 else critic_text.strip()
+                    if critic_text:
+                        story.append(Paragraph(critic_text, small_style))
+                
+                # 提取辩护者
+                defenders_section = re.search(r'辩护者观点.*?<div class="defender-content">.*?<div[^>]*>(.*?)</div>\s*<div>(.*?)</div>', round_content, re.DOTALL)
+                if defenders_section:
+                    story.append(Paragraph("辩护者观点：", small_style))
+                    defender_text = re.sub(r'<[^>]+>', '', defenders_section.group(2))
+                    defender_text = defender_text.strip()[:300] + '...' if len(defender_text.strip()) > 300 else defender_text.strip()
+                    if defender_text:
+                        story.append(Paragraph(defender_text, small_style))
+                
+                story.append(Spacer(1, 10))
+        
+        # 添加页脚
+        story.append(Spacer(1, 30))
+        footer_style = ParagraphStyle(
+            'Footer',
+            fontName='LXGWWenKai',
+            fontSize=8,
+            textColor=colors.grey,
+            alignment=1,
+        )
+        story.append(Paragraph("本报告由 AI Readers 自动生成", footer_style))
+        
+        # 构建PDF
+        doc.build(story)
+        
+        return os.path.exists(output_path) and os.path.getsize(output_path) > 0
         
     except Exception as e:
-        print(f"Error generating PDF: {e}")
+        print(f"Error generating PDF with reportlab: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -215,7 +363,6 @@ def get_html_report_template(project_data: dict) -> str:
             margin: 8pt 0;
             border-radius: 4pt;
             border-left: 3pt solid #6b7280;
-            white-space: pre-wrap;
             font-size: 9pt;
         }}
         .critic-content {{
@@ -392,12 +539,24 @@ def get_html_report_template(project_data: dict) -> str:
 """)
             
             # 批评者
-            critics = round_data.get('critics', [])
+            critics = round_data.get('critics', {})
             if critics:
                 html_parts.append("<h4>👥 批评者观点</h4>")
-                for critic in critics:
-                    content_html = markdown_to_html(critic.get('content', ''))
-                    html_parts.append(f"""
+                # critics is a dict: {name: content}
+                if isinstance(critics, dict):
+                    for name, content in critics.items():
+                        content_html = markdown_to_html(content)
+                        html_parts.append(f"""
+        <div class="critic-content">
+            <div class="agent-name">🔴 {name}</div>
+            <div>{content_html}</div>
+        </div>
+""")
+                else:
+                    # Fallback for list format
+                    for critic in critics:
+                        content_html = markdown_to_html(critic.get('content', ''))
+                        html_parts.append(f"""
         <div class="critic-content">
             <div class="agent-name">🔴 {critic.get('name', '批评者')}</div>
             <div>{content_html}</div>
@@ -405,12 +564,24 @@ def get_html_report_template(project_data: dict) -> str:
 """)
             
             # 辩护者
-            defenders = round_data.get('defenders', [])
+            defenders = round_data.get('defenders', {})
             if defenders:
                 html_parts.append("<h4>👥 辩护者观点</h4>")
-                for defender in defenders:
-                    content_html = markdown_to_html(defender.get('content', ''))
-                    html_parts.append(f"""
+                # defenders is a dict: {name: content}
+                if isinstance(defenders, dict):
+                    for name, content in defenders.items():
+                        content_html = markdown_to_html(content)
+                        html_parts.append(f"""
+        <div class="defender-content">
+            <div class="agent-name">🟢 {name}</div>
+            <div>{content_html}</div>
+        </div>
+""")
+                else:
+                    # Fallback for list format
+                    for defender in defenders:
+                        content_html = markdown_to_html(defender.get('content', ''))
+                        html_parts.append(f"""
         <div class="defender-content">
             <div class="agent-name">🟢 {defender.get('name', '辩护者')}</div>
             <div>{content_html}</div>
