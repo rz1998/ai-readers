@@ -89,7 +89,9 @@ function AgentCard({ agent, type }: { agent: AgentView; type: 'critic' | 'defend
 
       {expanded && (
         <div className="px-4 pb-4">
-          <div className="prose-content text-sm whitespace-pre-wrap">{agent.content}</div>
+          <div className="prose-content text-sm">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{agent.content}</ReactMarkdown>
+          </div>
         </div>
       )}
     </div>
