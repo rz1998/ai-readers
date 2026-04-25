@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217 91% 40%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 91% 20%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 91% 30%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 91% 25%;
+    --input: 217 91% 25%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+  
+  .glass-dark {
+    @apply bg-black/20 backdrop-blur-xl border border-white/5;
+  }
+  
+  .gradient-text {
+    @apply bg-gradient-to-r from-brand-400 to-cyan-400 bg-clip-text text-transparent;
+  }
+  
+  .card-gradient {
+    @apply bg-gradient-to-br from-brand-900/50 via-background to-background border border-border/50;
+  }
+  
+  .hover-lift {
+    @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-brand-500/20;
+  }
+  
+  .glow {
+    @apply shadow-[0_0_15px_rgba(59,130,246,0.3)];
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Markdown content styles */
+.prose-content {
+  @apply text-sm leading-relaxed;
+}
+
+.prose-content h2 {
+  @apply text-lg font-semibold mt-4 mb-2 text-foreground;
+}
+
+.prose-content h3 {
+  @apply text-base font-medium mt-3 mb-1 text-foreground;
+}
+
+.prose-content p {
+  @apply mb-2;
+}
+
+.prose-content ul {
+  @apply list-disc list-inside mb-2 space-y-1;
+}
+
+.prose-content li {
+  @apply text-muted-foreground;
+}
+
+.prose-content strong {
+  @apply text-foreground font-medium;
+}
+
+.prose-content em {
+  @apply text-muted-foreground italic;
+}
+
+.prose-content code {
+  @apply bg-white/10 px-1 py-0.5 rounded text-xs;
+}
