@@ -600,9 +600,10 @@ async def download_pdf(project_id: str):
         markdown_file = project_dir / "debate_full.md"
         if markdown_file.exists():
             md_content = markdown_file.read_text(encoding='utf-8')
-            # Run PDF generation in thread pool
+            # Run PDF generation in thread pool, passing final_report for score section
+            final_report = project_data.get('finalReport')
             loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(None, generate_pdf_from_markdown, md_content, str(temp_pdf))
+            success = await loop.run_in_executor(None, generate_pdf_from_markdown, md_content, str(temp_pdf), final_report)
         else:
             # Fallback to HTML-based PDF
             html_content = get_html_report_template(project_data)

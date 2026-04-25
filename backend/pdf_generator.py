@@ -118,13 +118,14 @@ def parse_markdown_to_paragraphs(md_content: str) -> list:
     return paragraphs
 
 
-def generate_pdf_from_markdown(markdown_content: str, output_path: str) -> bool:
+def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_report: dict = None) -> bool:
     """
     从Markdown内容生成PDF
     
     Args:
         markdown_content: Markdown字符串
         output_path: 输出PDF文件路径
+        final_report: 可选的最终报告数据（包含分数等）
         
     Returns:
         bool: 是否成功
@@ -275,6 +276,59 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str) -> bool:
         
         # 故事元素
         story = []
+        
+        # ===== Part 0: 最终报告（评分）=====
+        if final_report:
+            # 综合评分
+            score = final_report.get('score', 0)
+            story.append(Paragraph('📋 评审报告', styles['h1']))
+            story.append(Spacer(1, 10))
+            
+            # 评分展示
+            story.append(Paragraph(f'综合评分：{score} 分', styles['h2']))
+            story.append(Spacer(1, 10))
+            
+            # 各维度评分
+            if 'dimensions' in final_report:
+                story.append(Paragraph('各维度评分', styles['h3']))
+                for dim in final_report['dimensions']:
+                    dim_name = dim.get('name', '')
+                    dim_score = dim.get('score', 0)
+                    dim_comment = dim.get('comment', '')
+                    story.append(Paragraph(
+                        f'• {dim_name}：{dim_score}分 - {dim_comment}',
+                        styles['li']
+                    ))
+            
+            # 优点
+            if 'pros' in final_report and final_report['pros']:
+                story.append(Spacer(1, 10))
+                story.append(Paragraph('优点', styles['h3']))
+                for pro in final_report['pros']:
+                    story.append(Paragraph(f'✓ {pro}', styles['li']))
+            
+            # 问题
+            if 'cons' in final_report and final_report['cons']:
+                story.append(Spacer(1, 10))
+                story.append(Paragraph('主要问题', styles['h3']))
+                for con in final_report['cons']:
+                    story.append(Paragraph(f'• {con}', styles['li']))
+            
+            # 修改建议
+            if 'suggestions' in final_report:
+                suggestions = final_report['suggestions']
+                if suggestions.get('must'):
+                    story.append(Spacer(1, 10))
+                    story.append(Paragraph('必须修改', styles['h3']))
+                    for s in suggestions['must']:
+                        story.append(Paragraph(f'• {s}', styles['li']))
+                if suggestions.get('should'):
+                    story.append(Spacer(1, 10))
+                    story.append(Paragraph('建议修改', styles['h3']))
+                    for s in suggestions['should']:
+                        story.append(Paragraph(f'• {s}', styles['li']))
+            
+            story.append(Spacer(1, 20))
         
         # 清理markdown内容中的特殊字符
         clean_content = clean_article_content(markdown_content)
