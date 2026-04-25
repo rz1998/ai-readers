@@ -204,6 +204,25 @@ function RadarChartSection({ dimensions }: { dimensions: FinalReport['dimensions
   );
 }
 
+function SummaryReportSection({ summary }: { summary: string }) {
+  return (
+    <div className="glass-dark rounded-xl overflow-hidden">
+      <div className="p-4 border-b border-white/5">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Scale size={16} className="text-brand-400" />
+          文章评审总结
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1">基于多轮辩论的AI分析总结</p>
+      </div>
+      <div className="p-4 prose-content text-sm">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {summary}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
 function FinalReportSection({ report }: { report: FinalReport }) {
   return (
     <div className="space-y-6">
@@ -972,6 +991,47 @@ export function ProjectDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Score Display - Prominently at top */}
+              {currentProject.finalReport && (
+                <div className="glass-dark rounded-xl overflow-hidden">
+                  <div className="p-4 border-b border-white/5">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Star size={16} className="text-yellow-400" />
+                      评分概览
+                    </h3>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-center mb-4">
+                      <div className={cn('text-5xl font-bold', getScoreColor(currentProject.finalReport.score))}>
+                        {currentProject.finalReport.score}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">综合评分（满分100分）</p>
+                    </div>
+                    <div className="space-y-2">
+                      {currentProject.finalReport.dimensions.map((dim) => (
+                        <div key={dim.name} className="flex items-center gap-3">
+                          <span className="text-sm w-16 text-muted-foreground">{dim.name}</span>
+                          <div className="flex-1 bg-white/10 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full transition-all', getScoreColor(dim.score).replace('text-', 'bg-'))}
+                              style={{ width: `${dim.score}%` }}
+                            />
+                          </div>
+                          <span className={cn('text-sm font-bold w-10 text-right', getScoreColor(dim.score))}>
+                            {dim.score}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Summary Report Section */}
+              {currentProject.summaryReport && (
+                <SummaryReportSection summary={currentProject.summaryReport} />
+              )}
 
               {/* Article section */}
               <div className="glass-dark rounded-xl overflow-hidden">

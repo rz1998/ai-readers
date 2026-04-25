@@ -108,7 +108,8 @@ class DebateHistory:
                 'defenders': [d[1] for d in self.config.defenders],
             },
             'article_length': len(self.article),
-            'rounds': []
+            'rounds': [],
+            'summary_report': self.summary_report,  # AI 生成的总结报告
         }
         
         for r in self.rounds:

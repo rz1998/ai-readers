@@ -165,8 +165,16 @@ def load_project_for_response(project_id: str) -> dict:
     
     # Load debate result if exists and transform to frontend format
     result_file = HISTORY_DIR / project_id / "debate_result.json"
+    history_file = HISTORY_DIR / project_id / "debate_history.json"
     final_report = None
     rounds = []
+    summary_report = None
+    
+    # Load summary_report from debate_history.json if exists
+    if history_file.exists():
+        with open(history_file, 'r', encoding='utf-8') as f:
+            history_data = json.load(f)
+            summary_report = history_data.get('summary_report')
     
     if result_file.exists():
         with open(result_file, 'r', encoding='utf-8') as f:
@@ -231,6 +239,7 @@ def load_project_for_response(project_id: str) -> dict:
         "status": metadata.get("status", "pending"),
         "rounds": rounds,
         "finalReport": final_report,
+        "summaryReport": summary_report,
     }
 
 

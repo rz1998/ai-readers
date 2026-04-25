@@ -11,6 +11,7 @@ export interface Project {
   status: 'pending' | 'processing' | 'debating' | 'completed';
   rounds: RoundResult[];
   finalReport?: FinalReport;
+  summaryReport?: string;  // AI 生成的总结报告
 }
 
 export interface RoundResult {
