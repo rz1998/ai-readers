@@ -133,7 +133,7 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
     try:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib import colors
@@ -330,29 +330,43 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
             
             story.append(Spacer(1, 20))
         
-        # 清理markdown内容中的特殊字符
+        # ===== Part 1: 完整辩论记录 =====
+        # 解析Markdown，分两部分处理
         clean_content = clean_article_content(markdown_content)
-        
-        # 解析Markdown
         paragraphs = parse_markdown_to_paragraphs(clean_content)
         
-        # 跳过文章内容部分（代码块）：CJK Radicals会导致显示异常
-        # 这部分内容不是辩论报告的核心，直接跳过
+        # 跳过文章内容部分（代码块）
         filtered_paragraphs = []
         skip_article = False
+        in_summary = False  # 标记是否进入总结报告部分
+        debate_paragraphs = []  # 辩论记录部分
+        summary_paragraphs = []  # 总结报告部分
+        
         for p_type, content in paragraphs:
+            # 检测总结报告开始
+            if p_type == 'h1' and '📊 文章评审总结' in str(content):
+                in_summary = True
+                continue
+            # 跳过文章原文部分
             if p_type == 'h2' and '文章原文' in str(content):
                 skip_article = True
                 continue
             if p_type == 'h2' and skip_article:
                 skip_article = False
+                continue
             if skip_article and p_type == 'code':
                 continue
-            filtered_paragraphs.append((p_type, content))
+            # 跳过分隔线后的表格行
+            if p_type == 'table':
+                continue
+            
+            if in_summary:
+                summary_paragraphs.append((p_type, content))
+            else:
+                debate_paragraphs.append((p_type, content))
         
-        paragraphs = filtered_paragraphs
-        
-        for p_type, content in paragraphs:
+        # 添加辩论记录部分
+        for p_type, content in debate_paragraphs:
             if p_type == 'h1':
                 story.append(Paragraph(content, styles['h1']))
             elif p_type == 'h2':
@@ -457,6 +471,40 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
             elif p_type == 'code':
                 for line in content.split('\n'):
                     story.append(Paragraph(line, styles['code']))
+        
+        # ===== Part 2: 文章评审总结 =====
+        if summary_paragraphs:
+            story.append(Spacer(1, 20))
+            story.append(PageBreak())
+            for p_type, content in summary_paragraphs:
+                if p_type == 'h1':
+                    story.append(Paragraph(content, styles['h1']))
+                elif p_type == 'h2':
+                    story.append(Paragraph(content, styles['h2']))
+                elif p_type == 'h3':
+                    story.append(Paragraph(content, styles['h3']))
+                elif p_type == 'h4':
+                    story.append(Paragraph(content, styles['h4']))
+                elif p_type == 'p':
+                    parts = re.split(r'\*\*(.+?)\*\*', content)
+                    if len(parts) > 1:
+                        text_parts = []
+                        for idx, part in enumerate(parts):
+                            if idx % 2 == 1:
+                                text_parts.append(f"<b>{part}</b>")
+                            elif part.strip():
+                                text_parts.append(part)
+                        story.append(Paragraph(''.join(text_parts), styles['p']))
+                    else:
+                        story.append(Paragraph(content, styles['p']))
+                elif p_type == 'ul':
+                    for item in content:
+                        story.append(Paragraph('• ' + item, styles['li']))
+                elif p_type == 'ol':
+                    for idx, item in enumerate(content, 1):
+                        story.append(Paragraph(f'{idx}. ' + item, styles['li']))
+                elif p_type == 'quote':
+                    story.append(Paragraph(content, styles['quote']))
         
         # 添加页脚
         story.append(Spacer(1, 30))
