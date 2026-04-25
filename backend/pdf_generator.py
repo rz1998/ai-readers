@@ -277,70 +277,15 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
         # 故事元素
         story = []
         
-        # ===== Part 0: 最终报告（评分）=====
-        if final_report:
-            # 综合评分
-            score = final_report.get('score', 0)
-            story.append(Paragraph('📋 评审报告', styles['h1']))
-            story.append(Spacer(1, 10))
-            
-            # 评分展示
-            story.append(Paragraph(f'综合评分：{score} 分', styles['h2']))
-            story.append(Spacer(1, 10))
-            
-            # 各维度评分
-            if 'dimensions' in final_report:
-                story.append(Paragraph('各维度评分', styles['h3']))
-                for dim in final_report['dimensions']:
-                    dim_name = dim.get('name', '')
-                    dim_score = dim.get('score', 0)
-                    dim_comment = dim.get('comment', '')
-                    story.append(Paragraph(
-                        f'• {dim_name}：{dim_score}分 - {dim_comment}',
-                        styles['li']
-                    ))
-            
-            # 优点
-            if 'pros' in final_report and final_report['pros']:
-                story.append(Spacer(1, 10))
-                story.append(Paragraph('优点', styles['h3']))
-                for pro in final_report['pros']:
-                    story.append(Paragraph(f'✓ {pro}', styles['li']))
-            
-            # 问题
-            if 'cons' in final_report and final_report['cons']:
-                story.append(Spacer(1, 10))
-                story.append(Paragraph('主要问题', styles['h3']))
-                for con in final_report['cons']:
-                    story.append(Paragraph(f'• {con}', styles['li']))
-            
-            # 修改建议
-            if 'suggestions' in final_report:
-                suggestions = final_report['suggestions']
-                if suggestions.get('must'):
-                    story.append(Spacer(1, 10))
-                    story.append(Paragraph('必须修改', styles['h3']))
-                    for s in suggestions['must']:
-                        story.append(Paragraph(f'• {s}', styles['li']))
-                if suggestions.get('should'):
-                    story.append(Spacer(1, 10))
-                    story.append(Paragraph('建议修改', styles['h3']))
-                    for s in suggestions['should']:
-                        story.append(Paragraph(f'• {s}', styles['li']))
-            
-            story.append(Spacer(1, 20))
-        
-        # ===== Part 1: 完整辩论记录 =====
-        # 解析Markdown，分两部分处理
+        # 解析Markdown，分三部分处理
         clean_content = clean_article_content(markdown_content)
         paragraphs = parse_markdown_to_paragraphs(clean_content)
         
-        # 跳过文章内容部分（代码块）
-        filtered_paragraphs = []
+        # 分类处理各部分内容
         skip_article = False
-        in_summary = False  # 标记是否进入总结报告部分
-        debate_paragraphs = []  # 辩论记录部分
-        summary_paragraphs = []  # 总结报告部分
+        in_summary = False
+        debate_paragraphs = []
+        summary_paragraphs = []
         
         for p_type, content in paragraphs:
             # 检测总结报告开始
@@ -365,7 +310,8 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
             else:
                 debate_paragraphs.append((p_type, content))
         
-        # 添加辩论记录部分
+        # ===== Part 1: 完整辩论记录 =====
+        story.append(PageBreak())
         for p_type, content in debate_paragraphs:
             if p_type == 'h1':
                 story.append(Paragraph(content, styles['h1']))
@@ -505,6 +451,62 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
                         story.append(Paragraph(f'{idx}. ' + item, styles['li']))
                 elif p_type == 'quote':
                     story.append(Paragraph(content, styles['quote']))
+        
+        # ===== Part 0: 评审报告（评分）=====
+        if final_report:
+            story.append(Spacer(1, 20))
+            story.append(PageBreak())
+            
+            # 综合评分
+            score = final_report.get('score', 0)
+            story.append(Paragraph('📋 评审报告', styles['h1']))
+            story.append(Spacer(1, 10))
+            
+            # 评分展示
+            story.append(Paragraph(f'综合评分：{score} 分', styles['h2']))
+            story.append(Spacer(1, 10))
+            
+            # 各维度评分
+            if 'dimensions' in final_report:
+                story.append(Paragraph('各维度评分', styles['h3']))
+                for dim in final_report['dimensions']:
+                    dim_name = dim.get('name', '')
+                    dim_score = dim.get('score', 0)
+                    dim_comment = dim.get('comment', '')
+                    story.append(Paragraph(
+                        f'• {dim_name}：{dim_score}分 - {dim_comment}',
+                        styles['li']
+                    ))
+            
+            # 优点
+            if 'pros' in final_report and final_report['pros']:
+                story.append(Spacer(1, 10))
+                story.append(Paragraph('优点', styles['h3']))
+                for pro in final_report['pros']:
+                    story.append(Paragraph(f'✓ {pro}', styles['li']))
+            
+            # 问题
+            if 'cons' in final_report and final_report['cons']:
+                story.append(Spacer(1, 10))
+                story.append(Paragraph('主要问题', styles['h3']))
+                for con in final_report['cons']:
+                    story.append(Paragraph(f'• {con}', styles['li']))
+            
+            # 修改建议
+            if 'suggestions' in final_report:
+                suggestions = final_report['suggestions']
+                if suggestions.get('must'):
+                    story.append(Spacer(1, 10))
+                    story.append(Paragraph('必须修改', styles['h3']))
+                    for s in suggestions['must']:
+                        story.append(Paragraph(f'• {s}', styles['li']))
+                if suggestions.get('should'):
+                    story.append(Spacer(1, 10))
+                    story.append(Paragraph('建议修改', styles['h3']))
+                    for s in suggestions['should']:
+                        story.append(Paragraph(f'• {s}', styles['li']))
+            
+            story.append(Spacer(1, 20))
         
         # 添加页脚
         story.append(Spacer(1, 30))
