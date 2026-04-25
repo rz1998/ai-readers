@@ -22,6 +22,7 @@ import os
 import sys
 import json
 import textwrap
+import re
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime
@@ -1471,44 +1472,57 @@ def extract_critic_feedback(rounds: List[RoundResult]) -> Dict[str, List[Dict]]:
         "内容": [],
     }
     
-    import re
-    
     for r in rounds:
         for critic_name, critic_text in r.critic_views.items():
-            # 匹配段落引用（简单模式）
-            paragraph_pattern = r'第(\d+)[段页]\s*[：:]?\s*[^\"\n]*["\"]([^"\n]+)["\"]?'
-            for match in re.finditer(paragraph_pattern, critic_text):
-                para_num = match.group(1)
-                quote = match.group(2) if match.lastindex >= 2 else ""
+            # 改进的匹配模式：匹配引号内的实际文章原文
+            # 模式：中文引号「...」或英文引号"..."
+            quote_pattern = r'[`"「"]([^"「」`\n]{10,80})[`"」"]'
+            
+            for match in re.finditer(quote_pattern, critic_text):
+                quote = match.group(1).strip()
                 
-                # 查找该段落后续的问题和建议
+                if len(quote) < 5:
+                    continue
+                
+                # 查找该引号后面的问题和建议（在同一段落附近）
                 start = match.end()
-                section_text = critic_text[start:start+500]
+                search_range = critic_text[start:start+800]
                 
-                # 提取问题
-                problem_match = re.search(r'问题[：:]?\s*([^\n\-建议]+)', section_text)
+                # 提取问题 - 查找"问题："或"问题分析"后的内容
+                problem_match = re.search(r'问题[：:]\s*([^\n。]{10,100})', search_range)
                 problem = problem_match.group(1).strip() if problem_match else ""
                 
-                # 提取建议
-                suggestion_match = re.search(r'建议[：:]?\s*([^\n]+)', section_text)
+                # 提取建议 - 查找"建议："或"修改建议"后的内容
+                suggestion_match = re.search(r'建议[：:]\s*([^\n。]{10,100})', search_range)
                 suggestion = suggestion_match.group(1).strip() if suggestion_match else ""
                 
-                if quote and (problem or suggestion):
+                if problem or suggestion:
                     # 判断类别
-                    if "结构" in critic_text or "过渡" in section_text or "衔接" in section_text:
-                        feedback["结构"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
-                    elif "语言" in critic_text or "词汇" in section_text or "表达" in section_text:
-                        feedback["语言"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
-                    elif "逻辑" in critic_text or "论证" in section_text:
-                        feedback["逻辑"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
-                    elif "创意" in critic_text or "立意" in section_text:
-                        feedback["创意"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
-                    elif "技术" in critic_text or "标点" in section_text:
-                        feedback["技术"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                    if any(kw in quote + problem + suggestion for kw in ["结构", "过渡", "衔接", "段落", "框架"]):
+                        category = "结构"
+                    elif any(kw in quote + problem + suggestion for kw in ["语言", "词汇", "表达", "用词", "遣词", "口语"]):
+                        category = "语言"
+                    elif any(kw in quote + problem + suggestion for kw in ["逻辑", "论证", "推理", "因果", "论据"]):
+                        category = "逻辑"
+                    elif any(kw in quote + problem + suggestion for kw in ["创意", "立意", "深度", "独特", "见解"]):
+                        category = "创意"
+                    elif any(kw in quote + problem + suggestion for kw in ["技术", "标点", "格式", "错字", "拼写"]):
+                        category = "技术"
                     else:
-                        feedback["内容"].append({"quote": quote, "problem": problem, "suggestion": suggestion})
+                        category = "内容"
+                    
+                    # 去重：如果已经有相同引用，不再添加
+                    existing = [f["quote"] for f in feedback[category]]
+                    if quote not in existing:
+                        feedback[category].append({
+                            "quote": quote, 
+                            "problem": problem[:100] if problem else "需要进一步分析",
+                            "suggestion": suggestion[:100] if suggestion else "建议优化表述"
+                        })
     
     return feedback
+
+
 
 
 def make_issue_section(issue_name: str, specific_feedback: Dict) -> str:
