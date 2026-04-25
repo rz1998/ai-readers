@@ -24,6 +24,7 @@ import {
   Download,
   Trash2,
   RotateCcw,
+  Play,
 } from 'lucide-react';
 import {
   RadarChart,
@@ -575,15 +576,36 @@ export function ProjectDetailPage() {
 
               {/* Action buttons */}
               <div className="flex items-center gap-2">
-                {/* Restart button */}
-                <button
-                  onClick={() => setShowRestartConfirm(true)}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 transition-all text-sm font-medium"
-                  title="重新辩论"
-                >
-                  <RotateCcw size={14} />
-                  重新辩论
-                </button>
+                {/* Start/Restart button */}
+                {currentProject.status === 'pending' ? (
+                  <button
+                    onClick={handleRestart}
+                    disabled={isRestarting}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white transition-all text-sm font-medium disabled:opacity-50"
+                    title="开始辩论"
+                  >
+                    {isRestarting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        启动中...
+                      </>
+                    ) : (
+                      <>
+                        <Play size={14} />
+                        开始辩论
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowRestartConfirm(true)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 transition-all text-sm font-medium"
+                    title="重新辩论"
+                  >
+                    <RotateCcw size={14} />
+                    重新辩论
+                  </button>
+                )}
 
                 {/* Delete button */}
                 <button

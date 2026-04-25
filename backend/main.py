@@ -379,7 +379,10 @@ async def run_debate_async(project_id: str):
     try:
         # Load project metadata
         metadata = load_metadata(project_id)
-        rounds = metadata.get("config", {}).get("rounds", 3)
+        config = metadata.get("config", {})
+        rounds = config.get("rounds", 3)
+        critics = config.get("critics", [])
+        defenders = config.get("defenders", [])
         
         # Paths inside container (mounted from host)
         workspace_dir = Path("/app/workspace")
@@ -390,6 +393,7 @@ async def run_debate_async(project_id: str):
         print(f"[Debate] workspace_dir={workspace_dir}", flush=True)
         print(f"[Debate] article_file={article_file}", flush=True)
         print(f"[Debate] script_path={script_path}", flush=True)
+        print(f"[Debate] critics={critics}, defenders={defenders}", flush=True)
         
         # Copy article from container's history to host's history if needed
         container_article = HISTORY_DIR / project_id / "article.txt"
@@ -402,14 +406,29 @@ async def run_debate_async(project_id: str):
         if not article_file.exists():
             raise FileNotFoundError(f"Article file not found: {article_file}")
         
-        # Run debate.py on the host (via mounted workspace)
-        print(f"[Debate] Running debate.py with {rounds} rounds", flush=True)
-        
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,  # Use same python
+        # Build command args
+        host_project_dir = host_history_dir / project_id
+        cmd_args = [
+            sys.executable,
             str(script_path),
             "--file", str(article_file),
             "--rounds", str(rounds),
+            "--output-dir", str(host_project_dir),
+        ]
+        
+        # Add critics and defenders if specified
+        if critics:
+            import json
+            cmd_args.extend(["--critics-list", json.dumps(critics)])
+        if defenders:
+            import json
+            cmd_args.extend(["--defenders-list", json.dumps(defenders)])
+        
+        # Run debate.py on the host (via mounted workspace)
+        print(f"[Debate] Running debate.py with {rounds} rounds, critics={critics}, defenders={defenders}", flush=True)
+        
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(workspace_dir),
@@ -425,40 +444,31 @@ async def run_debate_async(project_id: str):
         await asyncio.sleep(2)
         
         if proc.returncode == 0:
-            # Find the debate history on the host
-            result = subprocess.run(
-                ["ls", "-t", str(host_history_dir)],
-                capture_output=True, text=True
-            )
-            print(f"[Debate] ls result: {result.stdout[:200]}", flush=True)
+            # Find the debate history in the current project directory
+            history_file = host_history_dir / project_id / "debate_history.json"
             
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                for dir_name in lines:
-                    if dir_name.startswith("debate_") and dir_name != project_id:
-                        history_file = host_history_dir / dir_name / "debate_history.json"
-                        if history_file.exists():
-                            print(f"[Debate] Found result at {history_file}", flush=True)
-                            # Copy to container's project directory
-                            result_file = HISTORY_DIR / project_id / "debate_result.json"
-                            with open(history_file, 'r', encoding='utf-8') as f:
-                                result_data = json.load(f)
-                            with open(result_file, 'w', encoding='utf-8') as f:
-                                json.dump(result_data, f, ensure_ascii=False, indent=2)
-                            
-                            # Update status
-                            metadata = load_metadata(project_id)
-                            metadata["status"] = "completed"
-                            save_metadata(project_id, metadata)
-                            print(f"[Debate] Success!", flush=True)
-                            return
+            if history_file.exists():
+                print(f"[Debate] Found result at {history_file}", flush=True)
+                # Copy to container's project directory
+                result_file = HISTORY_DIR / project_id / "debate_result.json"
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    result_data = json.load(f)
+                with open(result_file, 'w', encoding='utf-8') as f:
+                    json.dump(result_data, f, ensure_ascii=False, indent=2)
+                
+                # Update status
+                metadata = load_metadata(project_id)
+                metadata["status"] = "completed"
+                save_metadata(project_id, metadata)
+                print(f"[Debate] Success!", flush=True)
+                return
             
             # Failed to find result
             metadata = load_metadata(project_id)
             metadata["status"] = "failed"
             metadata["error"] = "Debate completed but result file not found"
             save_metadata(project_id, metadata)
-            print(f"[Debate] Failed: result file not found", flush=True)
+            print(f"[Debate] Failed: result file not found at {history_file}", flush=True)
         else:
             metadata = load_metadata(project_id)
             metadata["status"] = "failed"

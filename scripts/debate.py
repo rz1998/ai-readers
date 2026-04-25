@@ -55,13 +55,17 @@ class RoundResult:
 class DebateHistory:
     """辩论历史记录器"""
     
-    def __init__(self, article: str, config: 'DebateConfig'):
+    def __init__(self, article: str, config: 'DebateConfig', output_dir: str = None):
         self.article = article
         self.config = config
         self.rounds: List[RoundResult] = []
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.debate_id = f"debate_{self.timestamp}"
-        self.output_dir = os.path.join(SKILL_DIR, "history", self.debate_id)
+        if output_dir:
+            self.debate_id = os.path.basename(output_dir)
+            self.output_dir = output_dir
+        else:
+            self.debate_id = f"debate_{self.timestamp}"
+            self.output_dir = os.path.join(SKILL_DIR, "history", self.debate_id)
     
     def add_round(self, result: RoundResult):
         """添加一轮结果"""
@@ -177,29 +181,79 @@ class RoleLoader:
 class DebateConfig:
     """辩论配置"""
     
-    # 默认批评者
+    # 默认批评者（必须与 CRITIC_PROMPTS 的 key 一致）
     DEFAULT_CRITICS = [
         ("critic_structural", "结构批评者", "从结构框架角度分析"),
         ("critic_linguistic", "语言批评者", "从遣词造句角度分析"),
+        ("critic_logical", "逻辑批评者", "从逻辑论证角度分析"),
+        ("critic_creative", "创意批评者", "从立意风格角度分析"),
+        ("critic_technical", "技术批评者", "从技术细节角度分析"),
     ]
     
-    # 默认辩护者
+    # 默认辩护者（必须与 DEFENDER_PROMPTS 的 key 一致）
     DEFAULT_DEFENDERS = [
         ("defender_balanced", "平衡辩护者", "理性分析，寻求共识"),
         ("defender_empathetic", "共情辩护者", "理解作者意图"),
+        ("defender_content", "内容辩护者", "从内容事实角度辩护"),
+        ("defender_expression", "表达辩护者", "从表达方式角度辩护"),
     ]
     
     # 默认编辑
     DEFAULT_EDITOR = ("editor_senior", "资深编辑")
     
-    def __init__(self, rounds: int = 3, num_critics: int = 2, num_defenders: int = 2):
+    # 角色名称到ID的映射
+    CRITIC_NAME_TO_ID = {
+        '结构批评者': 'critic_structural',
+        '逻辑批评者': 'critic_logical',
+        '语言批评者': 'critic_linguistic',
+        '创意批评者': 'critic_creative',
+        '技术批评者': 'critic_technical',
+        '商业批评者': 'critic_business',
+    }
+    
+    DEFENDER_NAME_TO_ID = {
+        '平衡辩护者': 'defender_balanced',
+        '共情辩护者': 'defender_empathetic',
+        '内容辩护者': 'defender_content',
+        '表达辩护者': 'defender_expression',
+    }
+    
+    def __init__(self, rounds: int = 3, num_critics: int = 2, num_defenders: int = 2, 
+                 critics_list: list = None, defenders_list: list = None):
         self.rounds = rounds
         self.num_critics = num_critics
         self.num_defenders = num_defenders
         
-        # 构建实际使用的agent列表
-        self.critics = self.DEFAULT_CRITICS[:num_critics]
-        self.defenders = self.DEFAULT_DEFENDERS[:num_defenders]
+        # 如果指定了角色名称列表，使用指定的角色
+        if critics_list:
+            self.critics = []
+            for name in critics_list:
+                cid = self.CRITIC_NAME_TO_ID.get(name)
+                if cid:
+                    # 找到对应的默认角色
+                    for c in self.DEFAULT_CRITICS:
+                        if c[0] == cid:
+                            self.critics.append(c)
+                            break
+            if not self.critics:
+                self.critics = self.DEFAULT_CRITICS[:num_critics]
+        else:
+            self.critics = self.DEFAULT_CRITICS[:num_critics]
+        
+        if defenders_list:
+            self.defenders = []
+            for name in defenders_list:
+                did = self.DEFENDER_NAME_TO_ID.get(name)
+                if did:
+                    for d in self.DEFAULT_DEFENDERS:
+                        if d[0] == did:
+                            self.defenders.append(d)
+                            break
+            if not self.defenders:
+                self.defenders = self.DEFAULT_DEFENDERS[:num_defenders]
+        else:
+            self.defenders = self.DEFAULT_DEFENDERS[:num_defenders]
+        
         self.editor = self.DEFAULT_EDITOR
     
     def __str__(self):
@@ -665,6 +719,9 @@ def parse_arguments():
     parser.add_argument('--rounds', '-r', type=int, default=3, help='辩论轮数 (默认: 3)')
     parser.add_argument('--critics', '-c', type=int, default=2, help='批评者数量 (默认: 2)')
     parser.add_argument('--defenders', '-d', type=int, default=2, help='辩护者数量 (默认: 2)')
+    parser.add_argument('--critics-list', help='批评者名称列表 (JSON数组, 如 ["结构批评者","语言批评者"])')
+    parser.add_argument('--defenders-list', help='辩护者名称列表 (JSON数组, 如 ["平衡辩护者","共情辩护者"]')
+    parser.add_argument('--output-dir', help='输出目录 (默认为 ~/workspace/ai-readers/history/<timestamp>/)')
     parser.add_argument('--output', '-o', help='输出到文件')
     parser.add_argument('--verbose', '-v', action='store_true', help='详细输出')
     
@@ -803,15 +860,37 @@ def main():
         print("⚠️ 文章内容过短，请提供更完整的文章进行分析（至少50字符）")
         sys.exit(1)
     
+    # 解析 critics 和 defenders 列表
+    critics_list = None
+    defenders_list = None
+    if args.critics_list:
+        import json
+        try:
+            critics_list = json.loads(args.critics_list)
+        except:
+            print("⚠️ critics-list 解析失败")
+    if args.defenders_list:
+        import json
+        try:
+            defenders_list = json.loads(args.defenders_list)
+        except:
+            print("⚠️ defenders-list 解析失败")
+    
     # 创建辩论配置
     config = DebateConfig(
         rounds=args.rounds,
         num_critics=args.critics,
-        num_defenders=args.defenders
+        num_defenders=args.defenders,
+        critics_list=critics_list,
+        defenders_list=defenders_list
     )
     
     # 创建辩论历史记录器
-    debate_history = DebateHistory(article, config)
+    output_dir = args.output_dir
+    if output_dir:
+        # Expand user path and ensure it exists
+        output_dir = os.path.expanduser(output_dir)
+    debate_history = DebateHistory(article, config, output_dir=output_dir)
     
     # 运行辩论
     report = run_debate(article, config, verbose=args.verbose, history=debate_history)

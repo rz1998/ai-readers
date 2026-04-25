@@ -1,0 +1,26 @@
+{
+  "id": "debate_20260425_034636",
+  "title": "不可替代-交付稿",
+  "original_filename": "不可替代-交付稿.pdf",
+  "content_type": "application/pdf",
+  "file_size": 21081937,
+  "created_at": "2026-04-25T03:46:41.917206",
+  "status": "completed",
+  "config": {
+    "rounds": 5,
+    "critics": [
+      "结构批评者",
+      "语言批评者",
+      "逻辑批评者",
+      "创意批评者",
+      "技术批评者",
+      "商业批评者"
+    ],
+    "defenders": [
+      "平衡辩护者",
+      "共情辩护者",
+      "内容辩护者",
+      "表达辩护者"
+    ]
+  }
+}
