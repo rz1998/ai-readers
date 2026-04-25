@@ -133,7 +133,7 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
     try:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib import colors
@@ -311,17 +311,7 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
                 debate_paragraphs.append((p_type, content))
         
         # ===== Part 1: 完整辩论记录 =====
-        # 添加章节标题和分隔线
-        story.append(Paragraph("一、完整辩论记录", styles['h1']))
-        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#3b82f6'), spaceAfter=12))
-        story.append(Spacer(1, 6))
-        
-        # 跳过第一个 H1（"# 📚 完整辩论记录"），避免重复
-        skip_first_h1 = True
         for p_type, content in debate_paragraphs:
-            if skip_first_h1 and p_type == 'h1':
-                skip_first_h1 = False
-                continue
             if p_type == 'h1':
                 story.append(Paragraph(content, styles['h1']))
             elif p_type == 'h2':
@@ -429,11 +419,8 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
         
         # ===== Part 2: 文章评审总结 =====
         if summary_paragraphs:
-            story.append(Spacer(1, 16))
+            story.append(Spacer(1, 20))
             story.append(PageBreak())
-            story.append(Paragraph("二、文章评审总结", styles['h1']))
-            story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#3b82f6'), spaceAfter=12))
-            story.append(Spacer(1, 6))
             for p_type, content in summary_paragraphs:
                 if p_type == 'h1':
                     story.append(Paragraph(content, styles['h1']))
@@ -466,16 +453,17 @@ def generate_pdf_from_markdown(markdown_content: str, output_path: str, final_re
         
         # ===== Part 0: 评审报告（评分）=====
         if final_report:
-            story.append(Spacer(1, 16))
+            story.append(Spacer(1, 20))
             story.append(PageBreak())
-            story.append(Paragraph("三、评审报告", styles['h1']))
-            story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#3b82f6'), spaceAfter=12))
-            story.append(Spacer(1, 6))
             
             # 综合评分
             score = final_report.get('score', 0)
+            story.append(Paragraph('📋 评审报告', styles['h1']))
+            story.append(Spacer(1, 10))
+            
+            # 评分展示
             story.append(Paragraph(f'综合评分：{score} 分', styles['h2']))
-            story.append(Spacer(1, 12))
+            story.append(Spacer(1, 10))
             
             # 各维度评分
             if 'dimensions' in final_report:
