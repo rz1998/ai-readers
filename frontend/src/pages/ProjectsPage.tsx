@@ -120,11 +120,11 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: (id: s
               </div>
               <div className="flex items-center gap-1.5">
                 <ChevronRight size={14} className="text-defender-400" />
-                <span>{project.config.critics.length}位批评者</span>
+                <span>{project.config.critics?.length || 0}位批评者</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <ChevronRight size={14} className="text-critic-400" />
-                <span>{project.config.defenders.length}位辩护者</span>
+                <span>{project.config.defenders?.length || 0}位辩护者</span>
               </div>
             </div>
 
