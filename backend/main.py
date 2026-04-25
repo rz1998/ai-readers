@@ -546,6 +546,86 @@ async def update_project(project_id: str, update: UpdateProjectRequest):
     return {"success": True}
 
 
+@app.get("/api/projects/{project_id}/pdf")
+async def download_pdf(project_id: str):
+    """Generate and download PDF report for a project
+    
+    Note: PDF generation using server-side tools requires additional system dependencies.
+    For best Chinese font support, use the HTML export and browser's Print to PDF feature.
+    """
+    from fastapi.responses import FileResponse, JSONResponse
+    import asyncio
+    try:
+        from pdf_generator import generate_pdf_from_html, get_html_report_template
+        PDF_GENERATOR_AVAILABLE = True
+    except ImportError:
+        PDF_GENERATOR_AVAILABLE = False
+    
+    validate_project_id(project_id)
+    
+    # Load project data
+    metadata = load_metadata(project_id)
+    project_dir = HISTORY_DIR / project_id
+    
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Load full project data including rounds
+    project_data = load_project_for_response(project_id)
+    
+    # Check if PDF generator is available
+    if not PDF_GENERATOR_AVAILABLE:
+        # Return HTML export as fallback
+        html_content = get_html_report_template(project_data)
+        return JSONResponse({
+            "status": "fallback",
+            "message": "Server-side PDF generation unavailable. Please use HTML export and browser Print to PDF.",
+            "html_content": html_content
+        })
+    
+    # Generate HTML report
+    html_content = get_html_report_template(project_data)
+    
+    # Create temp PDF file
+    temp_pdf = project_dir / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    
+    try:
+        # Run PDF generation in a thread pool since Playwright sync API doesn't work in async loop
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, generate_pdf_from_html, html_content, str(temp_pdf))
+        
+        if not success or not temp_pdf.exists():
+            # Fallback to HTML response
+            return JSONResponse({
+                "status": "fallback",
+                "message": "PDF generation failed. Please use HTML export and browser Print to PDF.",
+                "html_content": html_content
+            })
+        
+        # Return file
+        return FileResponse(
+            path=temp_pdf,
+            filename=f"辩论报告_{metadata.get('title', project_id)}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''report.pdf"}
+        )
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}")
+        # Fallback to HTML response
+        return JSONResponse({
+            "status": "fallback",
+            "message": f"PDF generation error: {str(e)}. Please use HTML export.",
+            "html_content": html_content
+        })
+    finally:
+        # Clean up temp PDF files
+        if temp_pdf.exists():
+            try:
+                temp_pdf.unlink()
+            except:
+                pass
+
+
 # Serve static files if dist exists
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")

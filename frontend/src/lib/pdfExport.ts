@@ -1,264 +1,84 @@
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
-import type { Project, FinalReport } from '@/types';
+import type { Project } from '@/types';
 
 /**
  * 导出辩论报告为PDF
- * 使用浏览器打印功能，确保中文正常显示
+ * 使用后端API生成，确保中文正常显示
  */
 export async function exportReportToPDF(project: Project): Promise<void> {
-  // 生成HTML报告
-  const htmlContent = generateHTMLReport(project);
-  
-  // 创建隐藏的iframe
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position: absolute; width: 800px; height: 600px; left: -9999px; top: 0; border: none;';
-  document.body.appendChild(iframe);
-  
-  // 等待iframe加载
-  await new Promise<void>((resolve) => {
-    iframe.onload = () => resolve();
-    iframe.srcdoc = htmlContent;
-  });
-  
-  // 等待内容渲染
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
   try {
-    // 打印iframe内容
-    iframe.contentWindow?.print();
-  } finally {
-    // 延迟移除iframe
-    setTimeout(() => {
-      document.body.removeChild(iframe);
-    }, 1000);
+    // 调用后端API生成PDF
+    const response = await fetch(`/api/projects/${project.id}/pdf`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/pdf',
+      },
+    });
+    
+    // 检查内容类型
+    const contentType = response.headers.get('content-type') || '';
+    
+    if (contentType.includes('application/json')) {
+      // 服务器返回了错误/降级响应，使用HTML下载
+      const data = await response.json();
+      if (data.html_content) {
+        console.log('PDF generation unavailable, offering HTML download instead');
+        // 下载HTML报告
+        const blob = new Blob([data.html_content], { type: 'text/html' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `辩论报告_${project.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${Date.now()}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        return;
+      }
+      throw new Error(data.message || 'PDF generation failed');
+    }
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    // 获取PDF blob
+    const blob = await response.blob();
+    
+    // 创建下载链接
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `辩论报告_${project.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${Date.now()}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to export PDF:', error);
+    // 备用方案：使用浏览器打印
+    console.log('Falling back to browser print...');
+    fallbackToPrint(project);
   }
 }
 
 /**
- * 导出辩论报告为PDF（旧版本，直接使用jsPDF，中文会乱码，保留备用）
+ * 备用方案：使用浏览器打印
  */
-async function exportReportToPDFLegacy(project: Project): Promise<void> {
-  // 创建PDF
-  const pdf = new jsPDF('p', 'mm', 'a4');
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 15;
-  let yPos = margin;
-
-  // 标题
-  pdf.setFontSize(20);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('AI Readers 辩论评审报告', pageWidth / 2, yPos, { align: 'center' });
-  yPos += 12;
-
-  // 项目信息
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(100);
-  pdf.text(`项目：${project.title}`, margin, yPos);
-  yPos += 5;
-  pdf.text(`创建时间：${new Date(project.createdAt).toLocaleString('zh-CN')}`, margin, yPos);
-  yPos += 5;
-  pdf.text(`辩论配置：${project.config.rounds}轮 | ${project.config.critics.length}批评者 | ${project.config.defenders.length}辩护者`, margin, yPos);
-  yPos += 10;
-
-  // 分隔线
-  pdf.setDrawColor(200);
-  pdf.line(margin, yPos, pageWidth - margin, yPos);
-  yPos += 10;
-
-  // 文章内容
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0);
-  pdf.text('文章内容', margin, yPos);
-  yPos += 7;
-
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  const articleLines = pdf.splitTextToSize(project.article.substring(0, 1000) + (project.article.length > 1000 ? '...' : ''), pageWidth - 2 * margin);
-  pdf.text(articleLines, margin, yPos);
-  yPos += articleLines.length * 4 + 10;
-
-  // 如果有最终报告
-  if (project.finalReport) {
-    const report = project.finalReport;
-
-    // 检查是否需要分页
-    if (yPos > pageHeight - 60) {
-      pdf.addPage();
-      yPos = margin;
-    }
-
-    // 综合评分
-    pdf.setFontSize(16);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('综合评分', margin, yPos);
-    yPos += 8;
-
-    pdf.setFontSize(36);
-    pdf.text(`${report.score}`, margin, yPos);
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('分', margin + 25, yPos);
-    yPos += 15;
-
-    // 雷达图维度评分
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('各维度评分', margin, yPos);
-    yPos += 8;
-
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    report.dimensions.forEach((dim) => {
-      if (yPos > pageHeight - 20) {
-        pdf.addPage();
-        yPos = margin;
-      }
-      pdf.text(`${dim.name}：${dim.score}/10`, margin, yPos);
-      yPos += 5;
-    });
-    yPos += 5;
-
-    // 优点
-    if (yPos > pageHeight - 40) {
-      pdf.addPage();
-      yPos = margin;
-    }
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('核心优点', margin, yPos);
-    yPos += 6;
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    report.pros.slice(0, 3).forEach((pro, i) => {
-      const lines = pdf.splitTextToSize(`${i + 1}. ${pro}`, pageWidth - 2 * margin);
-      lines.forEach((line: string) => {
-        if (yPos > pageHeight - 10) {
-          pdf.addPage();
-          yPos = margin;
-        }
-        pdf.text(line, margin, yPos);
-        yPos += 4;
-      });
-    });
-    yPos += 5;
-
-    // 问题
-    if (yPos > pageHeight - 40) {
-      pdf.addPage();
-      yPos = margin;
-    }
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('主要问题', margin, yPos);
-    yPos += 6;
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    report.cons.slice(0, 3).forEach((con, i) => {
-      const lines = pdf.splitTextToSize(`${i + 1}. ${con}`, pageWidth - 2 * margin);
-      lines.forEach((line: string) => {
-        if (yPos > pageHeight - 10) {
-          pdf.addPage();
-          yPos = margin;
-        }
-        pdf.text(line, margin, yPos);
-        yPos += 4;
-      });
-    });
-    yPos += 5;
-
-    // 修改建议
-    if (report.suggestions.must.length > 0) {
-      if (yPos > pageHeight - 30) {
-        pdf.addPage();
-        yPos = margin;
-      }
-      pdf.setFontSize(12);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('修改建议（必须）', margin, yPos);
-      yPos += 6;
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'normal');
-      report.suggestions.must.forEach((s, i) => {
-        const lines = pdf.splitTextToSize(`${i + 1}. ${s}`, pageWidth - 2 * margin);
-        lines.forEach((line: string) => {
-          if (yPos > pageHeight - 10) {
-            pdf.addPage();
-            yPos = margin;
-          }
-          pdf.text(line, margin, yPos);
-          yPos += 4;
-        });
-      });
-    }
-  }
-
-  // 辩论过程（简略版）
-  if (yPos > pageHeight - 30) {
-    pdf.addPage();
-    yPos = margin;
-  }
-  pdf.addPage();
-  yPos = margin;
-
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('辩论过程', margin, yPos);
-  yPos += 8;
-
-  project.rounds.forEach((round) => {
-    if (yPos > pageHeight - 40) {
-      pdf.addPage();
-      yPos = margin;
-    }
-
-    pdf.setFontSize(11);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(`Round ${round.roundNum}`, margin, yPos);
-    yPos += 6;
-
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'normal');
-
-    // 批评者观点（简略）
-    round.critics.forEach((critic) => {
-      const summary = critic.content.substring(0, 200) + (critic.content.length > 200 ? '...' : '');
-      const lines = pdf.splitTextToSize(`【批评者 ${critic.name}】${summary}`, pageWidth - 2 * margin);
-      lines.forEach((line: string) => {
-        if (yPos > pageHeight - 10) {
-          pdf.addPage();
-          yPos = margin;
-        }
-        pdf.text(line, margin, yPos);
-        yPos += 3;
-      });
-      yPos += 2;
-    });
-
-    // 辩护者观点（简略）
-    round.defenders.forEach((defender) => {
-      const summary = defender.content.substring(0, 200) + (defender.content.length > 200 ? '...' : '');
-      const lines = pdf.splitTextToSize(`【辩护者 ${defender.name}】${summary}`, pageWidth - 2 * margin);
-      lines.forEach((line: string) => {
-        if (yPos > pageHeight - 10) {
-          pdf.addPage();
-          yPos = margin;
-        }
-        pdf.text(line, margin, yPos);
-        yPos += 3;
-      });
-      yPos += 2;
-    });
-
-    yPos += 5;
-  });
-
-  // 保存PDF
-  const filename = `辩论报告_${project.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${Date.now()}.pdf`;
-  pdf.save(filename);
+function fallbackToPrint(project: Project): void {
+  const htmlContent = generateHTMLReport(project);
+  
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position: absolute; width: 800px; height: 600px; left: -9999px; top: 0; border: none;';
+  document.body.appendChild(iframe);
+  
+  iframe.onload = () => {
+    iframe.contentWindow?.print();
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 1000);
+  };
+  
+  iframe.srcdoc = htmlContent;
 }
 
 /**
