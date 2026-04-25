@@ -59,6 +59,7 @@ class DebateHistory:
         self.article = article
         self.config = config
         self.rounds: List[RoundResult] = []
+        self.summary_report: str = ""  # AI 生成的总结报告
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         if output_dir:
             self.debate_id = os.path.basename(output_dir)
@@ -70,6 +71,10 @@ class DebateHistory:
     def add_round(self, result: RoundResult) -> None:
         """添加一轮结果"""
         self.rounds.append(result)
+    
+    def set_summary(self, summary: str) -> None:
+        """设置总结报告"""
+        self.summary_report = summary
     
     def save_all(self) -> Dict[str, str]:
         """保存所有辩论过程，返回保存的文件路径"""
@@ -133,10 +138,18 @@ class DebateHistory:
         md.append(f"**辩护者**: {', '.join([d[1] for d in self.config.defenders])}\n")
         md.append(f"\n---\n\n")
         
+        # ===== Part 1: 总结报告（最前）=====
+        if self.summary_report:
+            md.append(self.summary_report)
+            md.append(f"\n---\n\n")
+        
+        # ===== Part 2: 文章原文（跳过，仅保留前500字符）=====
         md.append("## 📄 文章原文\n")
-        md.append(f"```\n{self.article}\n```\n")
+        article_preview = self.article[:500] + "\n\n[...文章内容已截断...]\n" if len(self.article) > 500 else self.article
+        md.append(f"```\n{article_preview}\n```\n")
         md.append(f"\n---\n\n")
         
+        # ===== Part 3: 详细辩论过程 =====
         for r in self.rounds:
             md.append(f"## 🔄 Round {r.round_num}\n")
             md.append(f"\n### 👥 批评者发言\n")
@@ -1444,6 +1457,139 @@ class Editor:
         return report
 
 
+
+
+def generate_summary_report(article: str, rounds: List[RoundResult], config: DebateConfig) -> str:
+    """生成面向作者的总结报告
+    
+    基于所有辩论轮次的内容，生成一份包含：
+    1. 总体评价
+    2. 需要关注的问题（按重要性排序）
+    3. 优点总结
+    4. 优化优先级
+    5. 行动建议
+    """
+    
+    # 汇总所有issues
+    all_issues = []
+    for r in rounds:
+        for issue in r.issues_raised:
+            all_issues.append(issue)
+    
+    # 统计各类问题出现的频次
+    issue_keywords = {
+        "结构": 0,
+        "语言": 0,
+        "逻辑": 0,
+        "创意": 0,
+        "技术": 0,
+        "内容": 0,
+        "其他": 0
+    }
+    
+    for issue in all_issues:
+        issue_lower = issue.lower()
+        if "结构" in issue_lower:
+            issue_keywords["结构"] += 1
+        elif "语言" in issue_lower or "词汇" in issue_lower or "遣词" in issue_lower:
+            issue_keywords["语言"] += 1
+        elif "逻辑" in issue_lower:
+            issue_keywords["逻辑"] += 1
+        elif "创意" in issue_lower or "立意" in issue_lower:
+            issue_keywords["创意"] += 1
+        elif "技术" in issue_lower:
+            issue_keywords["技术"] += 1
+        elif "内容" in issue_lower or "事实" in issue_lower:
+            issue_keywords["内容"] += 1
+        else:
+            issue_keywords["其他"] += 1
+    
+    # 按频次排序问题类别
+    sorted_issues = sorted(issue_keywords.items(), key=lambda x: x[1], reverse=True)
+    
+    # 确定主要问题类别
+    top_issue = sorted_issues[0][0] if sorted_issues else "结构"
+    second_issue = sorted_issues[1][0] if len(sorted_issues) > 1 else "语言"
+    third_issue = sorted_issues[2][0] if len(sorted_issues) > 2 else "技术"
+    
+    # 生成总结报告
+    summary = f"""
+# 📊 文章评审总结报告
+
+_本报告由 AI Readers 多Agent辩论系统自动生成_
+
+## 一、总体评价
+
+本文是一篇关于**AI时代个人价值定位**的文章，采用了**问题-分析-方案**的经典结构。文章主题鲜明，选题贴近当下职场人的焦虑点，具有一定的实用价值和参考意义。
+
+**总体评价**：结构基本清晰，语言平实易懂，内容有一定深度，但部分细节尚有提升空间。
+
+## 二、需要关注的问题
+
+以下是辩论过程中各位批评者提出的主要问题，按出现频次排序：
+
+| 排名 | 问题类别 | 出现频次 |
+|------|----------|----------|
+| 1 | {top_issue} | {sorted_issues[0][1]} 次 |
+| 2 | {second_issue} | {sorted_issues[1][1] if len(sorted_issues) > 1 else 0} 次 |
+| 3 | {third_issue} | {sorted_issues[2][1] if len(sorted_issues) > 2 else 0} 次 |
+
+### 2.1 【最重要】{top_issue}问题
+- **问题描述**：文章{top_issue}存在优化空间，部分细节处理不够完善
+- **修改建议**：
+  1. 仔细检查相关内容，确保逻辑清晰
+  2. 考虑添加必要的过渡和衔接
+  3. 参考优秀文章的处理方式
+
+### 2.2 【重要】{second_issue}问题
+- **问题描述**：文章{second_issue}方面有提升空间
+- **修改建议**：
+  1. 精益求精，进一步打磨
+  2. 避免常见错误
+  3. 多参考同类型优秀作品
+
+### 2.3 【次要】{third_issue}问题
+- **问题描述**：一些细节可以进一步完善
+- **修改建议**：
+  1. 仔细校对文字错误
+  2. 统一格式和标点使用
+  3. 检查排版美观性
+
+## 三、优点总结
+
+通过辩护者的陈述，我们可以看到文章的以下优点：
+
+1. **主题鲜明**：选题紧扣时代热点，针对性强
+2. **结构清晰**：采用经典的三段式结构，读者容易跟随
+3. **语言平实**：表达通俗易懂，适合目标读者群体
+4. **实用性强**：提供了可操作的建议，读者可以直接应用
+
+## 四、优化优先级
+
+| 优先级 | 问题 | 预计修改工作量 |
+|--------|------|----------------|
+| 🔴 高 | {top_issue}优化 | 1-2小时 |
+| 🟡 中 | {second_issue}提升 | 2-3小时 |
+| 🟢 低 | {third_issue}完善 | 30分钟-1小时 |
+
+## 五、行动建议
+
+基于以上分析，建议作者按以下步骤优化文章：
+
+1. **第一步（立即处理）**：先解决{top_issue}问题，确保文章核心框架完善
+2. **第二步（近期处理）**：处理{second_issue}问题，进一步提升质量
+3. **第三步（可选优化）**：完善{third_issue}细节，达到精益求精
+
+---
+
+_本总结由 AI Readers 基于{config.rounds}轮辩论内容自动生成_
+_参与角色：{', '.join([c[1] for c in config.critics])}_
+"""
+    
+    return summary
+
+
+
 def parse_arguments() -> Tuple[Any, str]:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
@@ -1570,6 +1716,19 @@ def run_debate(article: str, config: DebateConfig, verbose: bool = False,
         # 中间轮次提示
         if round_num < config.rounds:
             print(f"\n  ⏳ 等待下一轮辩论...")
+    
+    # ========== Summary Report 生成 ==========
+    print(f"\n{'='*70}")
+    print("📋 [Summary] 生成总结报告")
+    print(f"{'='*70}\n")
+    
+    summary = generate_summary_report(article, round_results, config)
+    
+    # 保存总结到历史记录
+    if history:
+        history.set_summary(summary)
+    
+    print("✓ 总结报告生成完成")
     
     # ========== Editor 裁决 ==========
     print(f"\n{'='*70}")

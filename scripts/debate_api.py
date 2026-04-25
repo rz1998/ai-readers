@@ -49,6 +49,7 @@ class DebateResult:
     config: DebateConfig
     rounds: List[RoundResult]
     final_report: str = ""
+    summary_report: str = ""  # AI 生成的总结报告
 
 
 def build_critic_prompt(article: str, critic_name: str, round_num: int, 
@@ -230,6 +231,12 @@ def save_debate_result(result: DebateResult) -> Dict[str, str]:
         f"**配置**: {result.config.rounds}轮, {len(result.config.critics)}批评者, {len(result.config.defenders)}辩护者\n",
         f"\n---\n",
     ]
+    
+    # ===== Part 1: 总结报告（最前）=====
+    if result.summary_report:
+        md_content.append("\n## 📊 文章评审总结报告\n")
+        md_content.append(result.summary_report)
+        md_content.append(f"\n---\n")
     
     for r in result.rounds:
         md_content.append(f"\n## Round {r.round_num}\n")
