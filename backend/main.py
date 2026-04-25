@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -353,8 +353,7 @@ async def create_project(
 
 
 @app.post("/api/projects/{project_id}/debate")
-@limiter.limit("5/minute")
-async def start_debate(project_id: str):
+async def start_debate(project_id: str, request: Request):
     """Start debate for a project (async)"""
     metadata = load_metadata(project_id)
     metadata["status"] = "processing"
