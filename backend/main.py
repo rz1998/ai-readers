@@ -86,7 +86,7 @@ def load_metadata(project_id: str) -> dict:
         return json.load(f)
 
 
-def save_metadata(project_id: str, metadata: dict):
+def save_metadata(project_id: str, metadata: dict) -> None:
     """Save project metadata"""
     validate_project_id(project_id)
     metadata_file = HISTORY_DIR / project_id / "metadata.json"
