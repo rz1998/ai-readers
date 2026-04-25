@@ -1462,7 +1462,7 @@ class Editor:
 
 
 def extract_critic_feedback(rounds: List[RoundResult]) -> Dict[str, List[Dict]]:
-    """从辩论轮次中提取具体的批评反馈"""
+    """从辩论轮次中提取详细的批评反馈"""
     feedback = {
         "结构": [],
         "语言": [],
@@ -1474,50 +1474,84 @@ def extract_critic_feedback(rounds: List[RoundResult]) -> Dict[str, List[Dict]]:
     
     for r in rounds:
         for critic_name, critic_text in r.critic_views.items():
-            # 改进的匹配模式：匹配引号内的实际文章原文
-            # 模式：中文引号「...」或英文引号"..."
-            quote_pattern = r'[`"「"]([^"「」`\n]{10,80})[`"」"]'
+            # 模式1：匹配段落详细分析结构
+            # **第X段** - 中心句："引文" - 问题：xxx - 建议：xxx
+            pattern1 = r'第(\d+)段\*\*[^*]*中心句[：:]?\s*[\'"]([^\'"]+)[\'"]?[^*]*问题[：:]\s*([^\n]+)[^*]*建议[：:]\s*([^\n]+)'
             
-            for match in re.finditer(quote_pattern, critic_text):
-                quote = match.group(1).strip()
+            for match in re.finditer(pattern1, critic_text):
+                para_num = match.group(1)
+                quote = match.group(2).strip()
+                problem = match.group(3).strip()
+                suggestion = match.group(4).strip()
                 
-                if len(quote) < 5:
-                    continue
-                
-                # 查找该引号后面的问题和建议（在同一段落附近）
-                start = match.end()
-                search_range = critic_text[start:start+800]
-                
-                # 提取问题 - 查找"问题："或"问题分析"后的内容
-                problem_match = re.search(r'问题[：:]\s*([^\n。]{10,100})', search_range)
-                problem = problem_match.group(1).strip() if problem_match else ""
-                
-                # 提取建议 - 查找"建议："或"修改建议"后的内容
-                suggestion_match = re.search(r'建议[：:]\s*([^\n。]{10,100})', search_range)
-                suggestion = suggestion_match.group(1).strip() if suggestion_match else ""
-                
-                if problem or suggestion:
-                    # 判断类别
-                    if any(kw in quote + problem + suggestion for kw in ["结构", "过渡", "衔接", "段落", "框架"]):
+                if quote and len(quote) > 2:
+                    full_text = quote + problem + suggestion
+                    if any(kw in full_text for kw in ["结构", "过渡", "衔接", "段落", "框架", "开头", "结尾", "逻辑跳跃"]):
                         category = "结构"
-                    elif any(kw in quote + problem + suggestion for kw in ["语言", "词汇", "表达", "用词", "遣词", "口语"]):
+                    elif any(kw in full_text for kw in ["语言", "词汇", "表达", "用词", "遣词", "口语", "空洞"]):
                         category = "语言"
-                    elif any(kw in quote + problem + suggestion for kw in ["逻辑", "论证", "推理", "因果", "论据"]):
+                    elif any(kw in full_text for kw in ["逻辑", "论证", "推理", "因果", "论据", "数据", "支撑", "具体"]):
                         category = "逻辑"
-                    elif any(kw in quote + problem + suggestion for kw in ["创意", "立意", "深度", "独特", "见解"]):
+                    elif any(kw in full_text for kw in ["创意", "立意", "深度", "独特", "见解", "升华"]):
                         category = "创意"
-                    elif any(kw in quote + problem + suggestion for kw in ["技术", "标点", "格式", "错字", "拼写"]):
+                    elif any(kw in full_text for kw in ["技术", "标点", "格式", "错字", "拼写"]):
                         category = "技术"
                     else:
                         category = "内容"
                     
-                    # 去重：如果已经有相同引用，不再添加
                     existing = [f["quote"] for f in feedback[category]]
                     if quote not in existing:
                         feedback[category].append({
+                            "para": f"第{para_num}段",
                             "quote": quote, 
-                            "problem": problem[:100] if problem else "需要进一步分析",
-                            "suggestion": suggestion[:100] if suggestion else "建议优化表述"
+                            "problem": problem[:200] if problem else "需要进一步分析",
+                            "suggestion": suggestion[:200] if suggestion else "建议优化表述"
+                        })
+            
+            # 模式2：表格形式的段落分析
+            table_pattern = r'\|\s*(\d+)\s*\|\s*([^|]+)\s*\|'
+            for match in re.finditer(table_pattern, critic_text):
+                para_num = match.group(1)
+                center_sentence = match.group(2).strip()
+                
+                if center_sentence and 3 < len(center_sentence) < 100:
+                    start = max(0, match.start() - 200)
+                    end = min(len(critic_text), match.end() + 500)
+                    context = critic_text[start:end]
+                    
+                    problem_m = re.search(r'问题[：:]\s*([^\n|]{10,150})', context)
+                    suggestion_m = re.search(r'建议[：:]\s*([^\n|]{10,150})', context)
+                    
+                    problem = problem_m.group(1).strip() if problem_m else ""
+                    suggestion = suggestion_m.group(1).strip() if suggestion_m else ""
+                    
+                    if problem or suggestion:
+                        category = "结构"
+                        existing = [f["quote"] for f in feedback[category]]
+                        cs_short = center_sentence[:60]
+                        if cs_short not in existing:
+                            feedback[category].append({
+                                "para": f"第{para_num}段",
+                                "quote": cs_short,
+                                "problem": problem[:200] if problem else "需要分析",
+                                "suggestion": suggestion[:200] if suggestion else "建议优化"
+                            })
+            
+            # 模式3：优先级标记
+            priority_pattern = r'【[^】]+】\s*(\d+)\s*\.\s*([^\n]+)'
+            for match in re.finditer(priority_pattern, critic_text):
+                suggestion_text = match.group(2).strip()
+                if len(suggestion_text) > 10:
+                    quote_m = re.search(r'[\'""]([^\'"]{5,60})[\'""]]', suggestion_text)
+                    quote = quote_m.group(1) if quote_m else suggestion_text[:40]
+                    
+                    if suggestion_text:
+                        category = "结构"
+                        feedback[category].append({
+                            "para": "",
+                            "quote": quote[:60],
+                            "problem": "需要修改",
+                            "suggestion": suggestion_text[:200]
                         })
     
     return feedback
@@ -1532,12 +1566,19 @@ def make_issue_section(issue_name: str, specific_feedback: Dict) -> str:
     
     if feedbacks:
         # 有具体反馈时，生成详细的改进建议
-        for i, fb in enumerate(feedbacks[:3], 1):  # 最多3条
-            quote_preview = fb['quote'][:80] + "..." if len(fb['quote']) > 80 else fb['quote']
-            section += f"""**问题{i}**
-- **原文引用**：「{quote_preview}」
-- **问题分析**：{fb['problem']}
-- **修改建议**：{fb['suggestion']}
+        for i, fb in enumerate(feedbacks[:10], 1):  # 最多10条
+            para = fb.get('para', '')
+            quote = fb.get('quote', '')
+            problem = fb.get('problem', '需要进一步分析')
+            suggestion = fb.get('suggestion', '建议优化表述')
+            
+            quote_display = quote[:80] + "..." if len(quote) > 80 else quote
+            para_str = f"（{para}）" if para else ""
+            
+            section += f"""#### 问题{i}{para_str}
+- **原文引用**：「{quote_display}」
+- **问题分析**：{problem}
+- **修改建议**：{suggestion}
 
 """
     else:
@@ -1689,7 +1730,15 @@ _本报告由 AI Readers 多Agent辩论系统自动生成_
 
 {third_issue_section}
 
-## 三、优点总结
+## 三、纠错清单
+
+以下是在辩论中发现的问题，请在修改时一并修正：
+
+| 序号 | 原文 | 问题类型 | 修改建议 |
+|------|------|----------|----------|
+| - | - | - | - |
+
+## 四、优点总结
 
 通过辩护者的陈述，我们可以看到文章的以下优点：
 
@@ -1698,7 +1747,7 @@ _本报告由 AI Readers 多Agent辩论系统自动生成_
 3. **语言平实**：表达通俗易懂，适合目标读者群体
 4. **实用性强**：提供了可操作的建议，读者可以直接应用
 
-## 四、优化优先级
+## 五、优化优先级
 
 | 优先级 | 问题 | 预计修改工作量 |
 |--------|------|----------------|
@@ -1706,7 +1755,7 @@ _本报告由 AI Readers 多Agent辩论系统自动生成_
 | 🟡 中 | {second_issue}提升 | 2-3小时 |
 | 🟢 低 | {third_issue}完善 | 30分钟-1小时 |
 
-## 五、行动建议
+## 六、行动建议
 
 基于以上分析，建议作者按以下步骤优化文章：
 
