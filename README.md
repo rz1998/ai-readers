@@ -21,7 +21,7 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:5174
+访问 http://localhost:8091
 
 ### 辩论脚本
 
@@ -62,6 +62,19 @@ Final:   编辑综合 → 最终报告
 | 路由 | React Router v6 |
 | 导出 | jsPDF, html2canvas |
 | Agent | OpenClaw sessions_spawn |
+
+## 部署信息
+
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| nginx (前端) | 8091 | ✅ 运行中 |
+| backend (Python) | 容器内 | ✅ 运行中 |
+
+### 端口历史
+- 8086 → 与 ai-fund-market-data-service 冲突
+- 8087 → 与 ai-fund-strategy-service 冲突
+- 8089 → 端口占用
+- 8091 → 当前端口 (2026-04-29)
 
 ## License
 
