@@ -21,7 +21,7 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:8091
+访问 http://localhost:8092
 
 ### 辩论脚本
 
@@ -74,7 +74,8 @@ Final:   编辑综合 → 最终报告
 - 8086 → 与 ai-fund-market-data-service 冲突
 - 8087 → 与 ai-fund-strategy-service 冲突
 - 8089 → 端口占用
-- 8091 → 当前端口 (2026-04-29)
+- 8091
+- 8092 → 当前端口 (2026-04-29)
 
 ## License
 
